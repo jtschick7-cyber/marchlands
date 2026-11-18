@@ -1,6 +1,8 @@
+Spec Version: 0.2
+
 # Artifact #1: Marchlands Mathematical Balance & Hits-to-Kill (HTK) Model
 
-This document defines the exact deterministic combat formulas, unit stat blocks, spatial economy yields, and Turn 1–12 pacing curves for *Marchlands*. All values are tuned for a 22x22 map with 3–4 unit Keep caps so engagements resolve cleanly in 2–3 hits without stalemate stalemates or runaway turn-5 snowballs.
+This document defines the exact deterministic combat formulas, movement and action rules, unit stat blocks, spatial economy yields, Turn 1–10 pacing curves, and scoring formulas for *Marchlands*. All numeric values are initial tuning values and belong in `src/data/` as named constants (never inline).
 
 ---
 
@@ -8,30 +10,74 @@ This document defines the exact deterministic combat formulas, unit stat blocks,
 
 Combat uses a ratio-based deterministic formula scaled by current HP percentage (`hp / maxHp`). No random damage rolls occur.
 
-### Damage Equations
-* **Counter-Triangle Multiplier (`CounterMult`):** `1.40` (+40%) whenever a unit is in an advantaged matchup (applies to **both** Attack and Defense); `1.00` otherwise.
+### Damage Equations & Modifier Stacking
+All percentage modifiers are **additive within one bucket**. The Counter-Triangle multiplier applies **multiplicatively** afterwards.
+
+* **Counter-Triangle Multiplier (`CounterMult` / `TargetCounterMult`):**
+  * `CounterMult = 1.40` (+40%) when the **attacker** has the advantaged matchup; otherwise `1.00`.
+  * `TargetCounterMult = 1.40` (+40%) when the **defender** has the advantaged matchup; otherwise `1.00`.
   * `spearman` counters `cavalry`
   * `cavalry` counters `ranged` and `siege`
   * `ranged` and `infantry` counter `spearman`
+* **Additive Bonus Buckets (clamped to `[−0.50, +1.50]`):**
+  * `AtkBonusSum` = sum of all attack % modifiers (e.g., *Veteran Drill* `+0.15`, Longbowman terrain `+0.25`, *Signal Bastion* `+0.15`, Flanking `+0.15`, Supply-Severed `−0.25`, Mutiny `−0.25`, etc.).
+  * `DefBonusSum` = sum of all defense % modifiers (terrain/fortification, *Shield Wall* `+0.20`, Oathsworn `+0.40`, Garrison specialization `+0.10`, Supply-Severed `−0.25`, etc.).
 * **Effective Attack (`EffAtk`):**
-  `EffAtk = Unit.attack * (Unit.hp / Unit.maxHp) * CounterMult * PassiveAtkMult`
+  `EffAtk = Unit.attack × (Unit.hp / Unit.maxHp) × (1 + AtkBonusSum) × CounterMult`
 * **Effective Defense (`EffDef`):**
-  `EffDef = Target.defense * (Target.hp / Target.maxHp) * TargetCounterMult * TerrainDefMult * PassiveDefMult`
+  `EffDef = Target.defense × (Target.hp / Target.maxHp) × (1 + DefBonusSum) × TargetCounterMult`
 * **Primary Strike Damage:**
-  `Damage = Math.max(1, Math.round((EffAtk / (EffAtk + EffDef)) * EffAtk * 3.0))`
+  `Damage = Math.max(1, Math.round((EffAtk / (EffAtk + EffDef)) × EffAtk × 3.0))` *(where `Math.round` rounds `.5` up)*
 * **Retaliation Damage (Melee Defense Only):**
   * Triggers only if the defender survives (`hpAfter > 0`), the attacker is within the defender's `range`, and the attacker is not a `siege` unit.
-  * Uses the defender's **post-hit HP** (`hpAfter / maxHp`), rewarding decisive first strikes:
-  * `RetAtk = Target.attack * (hpAfter / Target.maxHp) * TargetCounterMult * PassiveAtkMult`
-  * `RetDef = Unit.defense * (Unit.hp / Unit.maxHp) * CounterMult * AttackerTerrainDefMult`
-  * `Retaliation = Math.max(1, Math.round((RetAtk / (RetAtk + RetDef)) * RetAtk * 3.0))`
+  * Uses the exact same equations with roles swapped, using the defender's **post-hit HP** (`hpAfter / maxHp`).
+* **One-Shot Protection (Steadfast):**
+  * If a unit is at **full HP** (`hp === maxHp`) when it is hit, the hit cannot take it below **1 HP** unless the attacker has the counter advantage (`CounterMult = 1.40`) in that attack.
+  * Applies to primary strikes **and** retaliation. Does not apply to Keeps, structures, Bandits, true damage (Mutiny, *Grumbling in the Ranks* event), or Winter attrition.
+  * Intended counter one-shots still happen (e.g., `knight` → `archer`, and Hill or Forest `longbowman` → `spearman`).
 
-### Terrain & Fortification Modifiers (`TerrainDefMult`)
-* **Plains / River:** `1.00` (Standard)
-* **Hills:** `1.20` (+20% Defense; grants `+1` Attack Range to `ranged` units)
-* **Forest:** `1.25` (+25% Defense; blocks entry for standard `cavalry`)
-* **Palisade Wall / Watchtower:** `1.30` (+30% Defense; blocks enemy movement across tile)
-* **Friendly Keep / Stronghold:** `1.35` (+35% Defense)
+### Terrain & Fortification Modifiers (`DefBonus`)
+Terrain and fortification bonuses **do not stack with each other**. A unit uses the **single highest** of its tile's terrain bonus and its fortification bonus, and then adds every other modifier source.
+
+| Source | `DefBonus` | Notes |
+| :--- | :---: | :--- |
+| **Plains / River** | `+0.00` | Standard |
+| **Hills** | `+0.20` | Grants `+1` Attack Range to `ranged` units |
+| **Forest** | `+0.25` | Blocks entry for standard `cavalry` |
+| **Palisade / Watchtower** *(unit standing **on** the tile)* | `+0.30` | `+0.45` with *Mortar & Stonework*; Palisade blocks enemy movement |
+| **Friendly Keep / Stronghold tile** | `+0.35` | `+0.45` with *Mortar & Stonework* |
+
+---
+
+## 1b. Movement & Action Rules
+
+### Movement Costs (Movement Points)
+Movement is 8-directional (Chebyshev), matching adjacency rules.
+
+| Terrain | Cost | Notes |
+| :--- | :---: | :--- |
+| **Plains** | `1` | |
+| **Hills** | `2` | |
+| **Forest** | `2` | `cavalry` cannot enter. Exception: `dusk_outrider` enters for `1`. |
+| **River** | `2` | Aurelia's `river_tollhouse` makes it `1` for friendly units. Seasons modify this (Spring `3`, Winter `1`). |
+| **Mountain** | `—` | Impassable to all units. Blocks ranged line of sight. |
+
+* **Minimum-Move Rule:** A unit that has not moved this turn can always enter one adjacent passable tile, even if the cost exceeds its movement.
+
+### Action Order & Zone of Control
+* **Action Order:** Each turn a unit may **Move then Attack**, **Attack only**, or **Move only**. It cannot move after attacking.
+  * *Exception:* **Dusk Outrider** may spend its remaining movement after attacking ("disengage").
+  * "Attack" includes attacking a unit or Keep, **Raze Fortification**, and **Pillage**.
+* **Zone of Control (ZoC):** A unit that enters a tile adjacent to an enemy unit or enemy Keep must stop there.
+  * *Exception:* **Dusk Outrider** ignores ZoC. Starting a turn already inside ZoC does not stop a unit from moving away.
+* **Flanking:** When attacking, the attacker gains **+0.15 `AtkBonus`** if the defender is adjacent to at least one *other* unit of the attacker's House. Does not stack beyond `+0.15`. **Vanguard Spearman** is immune (attackers never gain flanking against it). Flanking does not apply to attacks on Keeps or structures.
+* **Melee Advance:** Killing a unit does not move the attacker onto its tile. The only exceptions are **Keep capture** and **clearing an Outlaw Camp**.
+* **Pillage:** A unit standing on an **enemy-owned tile with an economic improvement** (`farm`, `lumber_mill`, `iron_mine`, `smithy`, `market`, `granary`, or any faction-unique economic building) may use its attack action to Pillage.
+  * Removes the improvement (`tile.improvement = null`; the tile remains owned by the enemy).
+  * The pillaging House gains `Math.floor(improvementMatCost * 0.5)` Materials plus `3` Coin. **House Corvus doubles both.**
+  * Keeps, Palisades, and Watchtowers cannot be pillaged (use **Raze Fortification** or Keep attacks instead). Logs a `pillage` ChronicleEvent.
+* **Keep Defense Values:** A Keep's garrison has `Defense 5`, `Attack 4`, and `maxKeepHp 20` (`30` with Garrison Seat specialization). It uses the Keep `+0.35` `DefBonus` and the standard combat formula with `keepHp / maxKeepHp` as its HP ratio. `siege` units deal their structure Attack (`siege_ram` 10, `sapper_crew` 6) and take zero retaliation.
+* **Healing:** A unit that neither moved nor attacked heals `3 HP` (`6 HP` with *Field Chirurgeons*). A unit on a friendly Keep tile heals `+3 HP` more. Supply-Severed units do not heal.
 
 ---
 
@@ -41,52 +87,51 @@ Combat uses a ratio-based deterministic formula scaled by current HP percentage 
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | `militia` | `infantry` | All | 20 | 4 | 3 | 2 | 1 | 6 | 0 | Unlocked Turn 1 |
 | `spearman` | `spearman` | All | 22 | 6 | 6 | 2 | 1 | 10 | 1 | Unlocked Turn 1 |
+| `sapper_crew` | `siege` | All | 18 | 6* | 3 | 2 | 1 | 10 | 1 | Unlocked Turn 1 |
 | `archer` | `ranged` | All | 16 | 6 | 2 | 2 | 2 | 10 | 1 | Decree: *Fletchers' Guild* |
 | `crossbowman` | `ranged` | All | 18 | 8 | 3 | 2 | 2 | 14 | 2 | Decree: *Steel Arbalests* |
 | `knight` | `cavalry` | All | 25 | 8 | 5 | 3 | 1 | 18 | 3 | Decree: *Chivalric Order* + Smithy Combo |
 | `siege_ram` | `siege` | All | 24 | 10* | 4 | 1 | 1 | 16 | 2 | Decree: *Siege Engineers* |
 | `longbowman` | `ranged` | Vane | 16 | 7 | 2 | 2 | 3 | 13 | 2 | House Vane Signature (+25% Atk in Forest/Hills) |
 | `oathsworn_halberdier` | `spearman` | Ironhelm | 24 | 6 | 7 | 2 | 1 | 13 | 2 | House Ironhelm Signature (+40% Def near Keep/Wall) |
-| `gilded_lancer` | `cavalry` | Aurelia | 26 | 9 | 5 | 3 | 1 | 20 | 3 | House Aurelia Signature (+1 Mov near River) + Smithy |
-| `dusk_outrider` | `cavalry` | Corvus | 20 | 7 | 4 | 4 | 1 | 14 | 2 | House Corvus Signature (Ignores Forest; disengage) |
+| `gilded_lancer` | `cavalry` | Aurelia | 26 | 9 | 5 | 3 | 1 | 20 | 3 | House Aurelia Signature (+1 Mov near River) + Smithy Combo (no decree gate; Aurelia starts with Iron Mine & Smithy decrees) |
+| `dusk_outrider` | `cavalry` | Corvus | 20 | 7 | 4 | 4 | 1 | 14 | 2 | House Corvus Signature (Ignores Forest & ZoC; disengage) |
 | `vanguard_spearman` | `spearman` | Solis | 24 | 7 | 6 | 2 | 1 | 13 | 2 | House Solis Signature (Flank-immune; +1 Sight) |
+| `free_company_spearman` | `spearman` | Event | 22 | 8 | 6 | 2 | 1 | — | 1 | Event: *A Free Company Rides North* (15 Coin; no Army Cap; cannot re-home; disbands if orphaned) |
 
-*\*Note on Siege Ram: Deals `10` base Attack against Keeps, Palisades, and Watchtowers; deals `4` base Attack against biological units.*
+*\*Note on Siege Units:*
+* `siege_ram`: Deals `10` base Attack against Keeps, Palisades, and Watchtowers (1-hit raze on Palisades/Watchtowers); deals `4` base Attack against biological units.
+* `sapper_crew`: Deals `6` base Attack against Keeps, Palisades, and Watchtowers (2-hit raze on Palisades/Watchtowers); deals `2` base Attack against biological units.
 
 ---
 
 ## 3. Verified Hits-to-Kill (HTK) Matrix
 
-All figures below are computed directly from the Section 1 equations assuming full starting HP on both sides.
-
-| Attacker | Defender | Defender Terrain | Counter Active? | Hit 1 Dmg | Retaliation Dmg | Hit 2 Dmg | Expected HTK | Tactical Role Check |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `militia` (20 HP) | `militia` (20 HP) | Plains (1.0x) | No | 7 | 4 | 6 | **3 Hits** | Even mirror attrition |
-| `spearman` (22 HP) | `knight` (25 HP) | Plains (1.0x) | Yes (+40%) | 16 | 2 | 19 | **2 Hits** | Hard counter punishes Cavalry |
-| `knight` (25 HP) | `spearman` (22 HP) | Plains (1.0x) | Yes (Def +40%) | 12 | 4 | 11 | **2–3 Hits** | Spearman survives charge & holds line |
-| `knight` (25 HP) | `archer` (16 HP) | Plains (1.0x) | Yes (+40%) | 29 | 0 | — | **1 Hit** | Cavalry deletes exposed Ranged |
-| `dusk_outrider` (20 HP) | `archer` (16 HP) | Forest (1.25x) | Yes (+40%) | 23 | 0 | — | **1 Hit** | Corvus outrider ambushes forest archers |
-| `archer` (16 HP) | `spearman` (22 HP) | Plains (1.0x) | Yes (+40%) | 15 | 0 | 15 | **2 Hits** | Ranged softens Spear wall safely |
-| `longbowman` (16 HP) | `spearman` (22 HP) | Plains (1.0x) | Yes (+40% +25%) | 23 | 0 | — | **1 Hit** | Vane Hill/Forest sniper one-shots Spear |
-| `crossbowman` (18 HP) | `oathsworn_halberdier` (24 HP) | Palisade (1.70x*) | Yes (+40%) | 16 | 0 | 16 | **2 Hits** | Ironhelm wall defense prevents 1-shot |
-| `knight` (25 HP) | `oathsworn_halberdier` (24 HP) | Palisade (2.10x*) | Yes (Def +40%) | 9 | 6 | 9 | **3 Hits** | Ironhelm choke point is nearly unbreakable |
-
-*\*Oathsworn Halberdier stacks +30% Palisade/Keep terrain with +40% Oathsworn passive (`1.0 + 0.30 + 0.40 = 1.70x`), plus `1.40x` Counter Defense vs Cavalry (`1.70 * 1.40 = 2.38x` effective defense).*
+*This table is generated by `scripts/genHtkTable.ts`, which calls the real engine combat function (including One-Shot Protection, adding a column for when it triggers). Never edit it by hand.* Engine tests assert against the engine's output, not against document numbers.
 
 ---
 
 ## 4. Keep Progression, Economy & Spatial Adjacency Values
 
 ### Starting House State (Turn 1)
-* **Starting Resources:** `Food: 0` (Capital Growth `0 / 18`), `Materials: 12`, `Coin: 10`
-* **First Coin Draft Milestone:** `25 Coin` (subsequent milestones increment by `+35 Coin`: `25 -> 60 -> 95 -> 130...`)
-* **Peaceful Village Annexation Cost:** `12 Food + 15 Coin` (requires friendly unit adjacent to neutral Frontier Village; converts immediately into a Tier-1 Keep)
+* **Starting Resources:** `Materials: 12`, `Coin: 10`. There is **no house-level Food treasury**—each Keep's Food yield goes directly into **that Keep's growth bar** (Capital Growth starts at `0 / 18`). The HUD's Food figure displays total Food income per turn across all Keeps.
+* **Coin Draft Milestones:** Checked against `house.lifetimeCoinEarned` (all gross Coin gained from Keep income, buildings, bounties, ruins, and events; spending and upkeep are never subtracted). First milestone is `25 Coin`, with subsequent milestones incrementing by `+35 Coin` (`25 -> 60 -> 95 -> 130...`), tracked in `house.nextCoinMilestone`.
+* **Peaceful Village Annexation Cost:** `15 Coin` (house treasury) plus `12 Food` taken from the growth bar of the annexing unit's `homeKeepId`. If that Keep's growth bar has less than `12 Food`, annexation is not allowed. *Crown Envoys* reduces this to `9 Coin + 7 Food`. Owning at least one **Market Town** Keep reduces the Coin cost by `20%` (additive with *Crown Envoys*; total discount capped at `50%`).
 
 ### Keep Tier Scaling
 | Keep Tier | Border Radius | Workable Tiles | Army Cap | Base Food / Turn | Base Mat / Turn | Base Coin / Turn | Next Level Food Threshold |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Tier-1 Keep** | 3x3 | 8 | 3 Units | +2 | +2 | +3 | 18 Food |
-| **Tier-2 Stronghold** | 5x5 | 24 | 4 Units | +4 | +3 | +5 | 36 Food (Grants Draft Only) |
+| **Tier-2 Stronghold** | 5x5 | 24 | 4 Units | +4 | +3 | +5 | 36 Food (Grants Draft + 5 Coin) |
+
+### Tier-2 Keep Specialization
+When a Keep reaches Tier 2, its owner chooses **one permanent specialization** before the Royal Decree Draft that the level-up also triggers:
+
+| Specialization | Effects |
+| :--- | :--- |
+| **Garrison Seat** | Army Cap `4 -> 5`. `maxKeepHp` `20 -> 30`; Keep regeneration `+4 -> +6`. Friendly units inside this Keep's territory gain `+0.10 DefBonus`. Palisade cap in this territory `4 -> 5`. |
+| **Market Town** | `+4 Coin/turn`. Markets in this territory yield `+2 Coin` more. While the House owns at least one Market Town, Peaceful Annexation costs `20%` less Coin (does not stack across multiple Market Towns; adds to *Crown Envoys*, total discount capped at `50%`). |
+| **Granary Seat** | `+2 Food/turn`. Farms in this territory yield `+1 Food`. This Keep's repeat-draft threshold drops `36 -> 28` Food. |
 
 ### Improvement Costs, Base Yields & Spatial Adjacencies
 | Improvement ID | Mat Cost | Valid Terrain | Base Yield / Turn | Spatial Adjacency / Special Rule |
@@ -97,29 +142,49 @@ All figures below are computed directly from the Section 1 equations assuming fu
 | `smithy` | 10 | Plains, Hills | +1 Materials | Adjacent to `iron_mine` AND `lumber_mill`: unlocks `knight` / `gilded_lancer` training at Keep |
 | `market` | 8 | Plains | +3 Coin | **+1 Coin** per adjacent `farm` or `river` tile |
 | `granary` | 8 | Plains | +2 Food | **+1 Food** to every adjacent `farm` or `foresters_lodge` |
-| `palisade` | 5* | Any non-Mountain | — | Blocks enemy movement; grants **+30% Defense** (*Ironhelm cost: 3 Mat*) |
-| `watchtower` | 7* | Plains, Hills | — | Clears 5x5 fog radius; grants **+30% Defense** (*Ironhelm cost: 5 Mat*) |
+| `palisade` | 5* | Any non-Mountain | — | Blocks enemy movement; grants **+0.30 `DefBonus`** to friendly unit standing **on** the tile (*Ironhelm cost: 3 Mat*) |
+| `watchtower` | 7* | Plains, Hills | — | Clears 5x5 fog radius; grants **+0.30 `DefBonus`** to friendly unit standing **on** the tile (*Ironhelm cost: 5 Mat*) |
 | `foresters_lodge` | 8 | Forest | +2 Food, +2 Mat | **House Vane:** Preserves Forest tile (stacks with Vane's +1 Mat passive) |
 | `deep_smeltery` | 10 | Mountain / Iron | +4 Mat, +2 Coin | **House Ironhelm:** Can be built on bare Mountain tiles even without Iron |
-| `river_tollhouse` | 8 | River | +3 Coin | **House Aurelia:** Acts as a walkable bridge for friendly units |
-| `war_camp` | 9 | Plains, Hills | +1 Materials | **House Corvus:** Increases parent Keep's Army Cap by `+1` |
-| `signal_bastion` | 9 | Hills, Plains | +1 Coin | **House Solis:** Clears 5x5 fog; grants **+15% Attack** to adjacent friendly units |
+| `river_tollhouse` | 8 | River | +3 Coin | **House Aurelia:** Acts as a walkable bridge (`1` Mov cost) for friendly units |
+| `war_camp` | 14 | Plains, Hills | +1 Materials | **House Corvus:** Increases parent Keep's Army Cap by `+1`. Max **1 per Keep**, max **2 per House**. |
+| `signal_bastion` | 9 | Hills, Plains | +1 Coin | **House Solis:** Clears 5x5 fog; grants **+0.15 `AtkBonus`** to adjacent friendly units |
 
 ---
 
-## 5. Turn 1–10 Economy Pacing Simulation (House Vane Benchmark)
+## 5. Turn 1–10 Economy Pacing Benchmark (House Vane Illustrative Model)
+
+*Note: This illustrative table reflects the per-Keep Food growth-bar model (no house-level Food treasury) and Spring/Summer baseline conditions. It will be regenerated by the simulation harness (`scripts/sim.ts`) once the engine is built.*
 
 Assumes House Vane starts with a Capital containing 2 Forest tiles (`+2 Mat/turn` passive), 1 River-adjacent Plains tile, and 1 standard Plains tile within its initial 3x3 territory.
 
-| Turn | Net Income (F / M / C) | Action Taken | End Treasury (F / M / C) | Keep Growth | Milestone / Strategic State |
+| Turn | Net Income (F / M / C) | Action Taken | End Treasury (Mat / Coin) | Capital Growth Bar | Milestone / Strategic State |
 | :---: | :---: | :--- | :---: | :---: | :--- |
-| **1** | +2 / +4 / +3 | Build `farm` on River Plains (`-6 Mat`) | 2 / 10 / 13 | 2 / 18 | Farm online (`+4 Food/turn` w/ River) |
-| **2** | +6 / +4 / +3 | Build `lumber_mill` next to 2 Forests (`-6 Mat`) | 8 / 8 / 16 | 8 / 18 | Mill online (`+4 Mat/turn` w/ Adjacency) |
-| **3** | +6 / +8 / +3 | Train `spearman` (`-10 Mat`, `-1 Coin/turn`) | 14 / 6 / 19 | 14 / 18 | First scout/escort unit deployed (Cap 1/3) |
-| **4** | +6 / +8 / +2 | Build `foresters_lodge` in Forest (`-8 Mat`) | 20 / 6 / 21 | **2 / 36** | **Tier-2 Stronghold!** Borders 5x5; **Draft #1** |
-| **5** | +10 / +11 / +4 | Train `longbowman` (`-13 Mat`, `-2 Coin/turn`) | 12 / 4 / **25** | 12 / 36 | **25 Coin Milestone -> Draft #2!** (Cap 2/4) |
-| **6** | +10 / +11 / +2 | Build `market` next to River (`-8 Mat`) | 22 / 7 / 27 | 22 / 36 | Market online (`+4 Coin/turn`) offsets upkeep |
-| **7** | +10 / +11 / +6 | Train `spearman` (`-10 Mat`, `-1 Coin/turn`) | 32 / 8 / 33 | 32 / 36 | 3-unit strike group ready (Cap 3/4) |
-| **8** | +10 / +11 / +5 | Annex neutral Frontier Village (`-12 F, -15 C`) | 30 / 19 / 23 | 30 / 36 | **2nd Keep online!** Economy doubles |
+| **1** | +2 / +4 / +3 | Build `farm` on River Plains (`-6 Mat`) | 10 / 13 | 2 / 18 | Farm online (`+4 Food/turn` w/ River) |
+| **2** | +6 / +4 / +3 | Build `lumber_mill` next to 2 Forests (`-6 Mat`) | 8 / 16 | 8 / 18 | Mill online (`+4 Mat/turn` w/ Adjacency) |
+| **3** | +6 / +8 / +3 | Train `spearman` (`-10 Mat`, `-1 Coin/turn`) | 6 / 19 | 14 / 18 | First scout/escort unit deployed (Cap 1/3) |
+| **4** | +6 / +8 / +2 | Build `foresters_lodge` in Forest (`-8 Mat`) | 6 / 21 | **2 / 36** | **Tier-2 Stronghold!** Specialization + **Draft #1** |
+| **5** | +10 / +11 / +4 | Train `longbowman` (`-13 Mat`, `-2 Coin/turn`) | 4 / **25** | 12 / 36 | **25 Coin Milestone -> Draft #2!** (Cap 2/4) |
+| **6** | +10 / +11 / +2 | Build `market` next to River (`-8 Mat`) | 7 / 27 | 22 / 36 | Market online (`+4 Coin/turn`) offsets upkeep |
+| **7** | +10 / +11 / +6 | Train `spearman` (`-10 Mat`, `-1 Coin/turn`) | 8 / 33 | 32 / 36 | 3-unit strike group ready (Cap 3/4) |
+| **8** | +10 / +11 / +5 | Tier-2 Repeat Milestone (`+5 Coin`); save for Annexation | 19 / 43 | **6 / 36** | **Draft #3** triggered by Capital `36 Food` bar |
+| **9** | +10 / +11 / +5 | Annex neutral Frontier Village (`-12 F` from bar, `-15 C`) | 30 / 33 | 4 / 36 | **2nd Keep online!** Economy doubles |
 
-**Pacing Takeaway:** The player upgrades their Capital and triggers their first two Royal Decree Drafts by **Turns 4–5**, fields a 3-unit tactical squad by **Turn 7**, and secures a second Keep by **Turn 8**—putting them directly on collision course with rival Houses around Turns 9–12.
+---
+
+## 6. Scoring (Chronicle & Live HUD)
+
+Score is computed by a pure function `src/engine/scoring.ts → computeScore(state, houseId)` and shown live in the HUD in both modes, though it only decides the winner in **Chronicle** mode. Scoring reads `house.stats` counters directly and never recalculates history.
+
+| Category | Points |
+| :--- | :--- |
+| **Territory** | `+1` per owned tile |
+| **Keeps** | `+40` per Keep owned; `+20` extra per Tier-2 Keep |
+| **Decrees** | `+10` per decree owned |
+| **Military** | `+5` per enemy unit destroyed; `+30` per enemy Keep captured (counted when captured, kept even if the Keep is lost later) |
+| **Exploration** | `+1` per `4` tiles ever revealed (rounded down) |
+| **Landmarks** | `+15` per Relic Ruin explored; `+20` per Outlaw Camp cleared; `+10` per Ancient Watchtower first reached |
+| **Crown** | `+2` per point of **lifetime** Royal Favor earned |
+| **Treasury** | `+1` per `10` Coin held at game end *(end-of-game only)* |
+
+* **Tiebreakers (Chronicle):** More Keeps → higher `lifetimeCoinEarned` → House turn order.

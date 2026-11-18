@@ -1,3 +1,5 @@
+Spec Version: 0.2
+
 # Artifact #4: Marchlands Visual Design Token & Heraldry Sheet
 
 This document defines the complete color system, typography scale, fog-of-war overlays, and minimalist SVG glyph specifications for *Marchlands*. All tokens are engineered for high-contrast readability on 375x812 mobile viewports, full colorblind accessibility (Protanopia, Deuteranopia, and Tritanopia safe), and zero external image dependencies.
@@ -93,6 +95,7 @@ Every tile renders on a standardized `48x48` coordinate grid (`viewBox="0 0 48 4
 * `archer` (`ranged`): Curved hunting bow arc with nocked arrow pointing up-right.
 * `crossbowman` (`ranged`): Horizontal T-shaped heavy arbalest stock and prod.
 * `knight` (`cavalry`): Armored warhorse head profile with plumed helm crest.
+* `sapper_crew` (`siege`): Mattock crossed over a ladder, inside the siege-class token frame.
 * `siege_ram` (`siege`): Wheeled A-frame timber roof housing a horizontal iron-tipped battering log.
 * `longbowman` *(Vane)*: Tall vertical warbow with dual fletched arrows.
 * `oathsworn_halberdier` *(Ironhelm)*: Broad crescent halberd axe-blade atop a heavy tower shield.

@@ -1,12 +1,17 @@
+Spec Version: 0.2
+
 # Artifact #2: Marchlands Content & Flavor Catalog
 
-This catalog defines the complete narrative and mechanical content pools for *Marchlands*: **24 Royal Decrees**, **12 Relic Ruin Encounters**, and **50 House-Specific Settlement Names** (10 per House). All entries match the grounded, low-fantasy medieval frontier tone and map directly to the game engine's state schema.
+This catalog defines the complete narrative and mechanical content pools for *Marchlands*: **24 Royal Decrees**, **12 Relic Ruin Encounters**, **50 House-Specific Settlement Names** (10 per House), **14 Frontier Events**, and **12 Crown Writs**. All entries match the grounded, low-fantasy medieval frontier tone and map directly to the game engine's state schema.
 
 ---
 
 ## 1. The 24 Royal Decrees (Milestone Draft Pool)
 
-Every House starts Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, and its faction-unique building and signature unit unlocked. All 24 decrees below enter the 1-of-3 Milestone Draft pool. Once drafted, a decree is permanently active for that House and removed from its future draft rolls.
+Every House starts Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, **Sapper Crew**, and its faction-unique building and signature unit unlocked. **House Aurelia** also starts owning `decree_iron_prospecting` (*Royal Mining Charter*) and `decree_master_smiths` (*Guild of Master Smiths*), which are removed from Aurelia's draft pool and count toward its decree score.
+
+* **Sapper Crew (Base Siege Unit, Turn 1):** *"Mantlets, mattocks and fire-hardened ladders — no wall on the frontier was ever built tall enough."*
+* **Draft Category Guarantee:** Each 3-card draft hand offers **1 Infrastructure Blueprint**, **1 Military Charter**, and **1 Kingdom Doctrine** drawn with the seeded PRNG from that House's *unowned* decrees in each category. When a category runs out, its slot fills from remaining categories in priority order **Doctrine → Infrastructure → Military**, with no duplicates in one hand. **Royal Reroll** (3 Favor) follows the same rule and may offer cards from the previous hand again.
 
 ### Category A: Infrastructure Blueprints (6 Decrees)
 
@@ -14,7 +19,7 @@ Every House starts Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearma
 | :--- | :--- | :--- | :--- |
 | `decree_iron_prospecting` | **Royal Mining Charter** | *"He who controls the iron veins of the ridge commands the rhythm of every forge in the valley."* | Unlocks construction of the **Iron Mine** improvement (`8 Mat`, requires Iron Deposit, `+3 Materials/turn`). |
 | `decree_master_smiths` | **Guild of Master Smiths** | *"Bellows fed by river timber and ridge ore turn raw pig-iron into plate fit for noble shock cavalry."* | Unlocks construction of the **Smithy** improvement (`10 Mat`, `+1 Materials/turn`; enables **Knight** / **Gilded Lancer** training when adjacent to both an Iron Mine and a Lumber Mill). |
-| `decree_timber_palisades` | **Border Palisade Edict** | *"Sharpened oak trunks sunk six feet deep have broken more warbands than gold ever bought."* | Unlocks construction of the **Palisade Wall** (`5 Mat` / `3 Mat` for Ironhelm; blocks enemy unit movement and grants `+30% Defense` to friendly units on or behind the tile). |
+| `decree_timber_palisades` | **Border Palisade Edict** | *"Sharpened oak trunks sunk six feet deep have broken more warbands than gold ever bought."* | Unlocks construction of the **Palisade Wall** (`5 Mat` / `3 Mat` for Ironhelm; blocks enemy unit movement and grants `+30% Defense` to friendly units standing **on** the tile). |
 | `decree_frontier_towers` | **Watchmen of the March** | *"A single beacon lit upon a stone tower warns the valley three days before riders crest the hills."* | Unlocks construction of the **Watchtower** (`7 Mat` / `5 Mat` for Ironhelm; permanently reveals a 5x5 fog radius and grants `+30% Defense`). |
 | `decree_chartered_markets` | **Chartered Trade Markets** | *"Where roads cross and grain wagons gather, the Crown's tax collectors are never far behind."* | Unlocks construction of the **Market** (`8 Mat`, `+3 Coin/turn`, plus `+1 Coin/turn` per adjacent Farm or River tile). |
 | `decree_stone_granaries` | **Tithe Granaries** | *"Dry cellars and salted stores ensure a hard frost breeds loyalty rather than famine."* | Unlocks construction of the **Granary** (`8 Mat`, `+2 Food/turn`, plus `+1 Food/turn` to every adjacent Farm or Forester's Lodge). |
@@ -133,3 +138,47 @@ Entry **#1** for each House is always assigned to its **Starting Capital**. Entr
 8. Starwatch
 9. Zenith Hold
 10. Lightford
+
+---
+
+## 4. Frontier Events (14 Seasonal Events)
+
+At the start of each new season (Turns 4, 7, 10…), one Frontier Event is drawn using the seeded PRNG (no repeat within 4 seasons).
+
+| ID | Event Title | Seasons | Target | Vignette | Effect |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `evt_royal_levy` | **Royal Levy** | Any | All Houses | *"Sealed writs from the Regent's Exchequer arrive by hard-ridden courier, demanding silver for the capital's coffers."* | Choose: pay `min(20, floor(coin × 0.2))` Coin **or** lose `2` Favor. |
+| `evt_bountiful_harvest` | **Bountiful Harvest** | Autumn | All Houses | *"Warm late rains and fat barley heads fill every threshing floor before the first frost."* | `+4` Food to every Keep's growth bar. |
+| `evt_blight` | **Blight in the Fields** | Spring, Summer | Leader | *"Rust-spotted stalks and sour damp creep through the richest valley plots, sparing no granary."* | Leader's Farms `−1` Food for `3` turns. |
+| `evt_hard_frost` | **The Long Frost** | Winter | All Houses | *"North winds lock the river fords in iron ice, biting deep into every camp outside stone walls."* | Winter attrition is `4` instead of `2` this season. |
+| `evt_outlaw_resurgence` | **Outlaw Resurgence** | Any | Map | *"Broken men and deserters gather beneath tattered black banners in the unclaimed timberlands."* | Spawn `1` Outlaw Camp (with Bandit) on an empty, unowned, passable tile `≥ 4` tiles from any Keep. Skip if none qualifies. |
+| `evt_free_company` | **A Free Company Rides North** | Summer, Autumn | Trailing | *"Ash-stained pikes and seasoned sellswords offer their blades to the House most hungry for steel."* | Choose: hire a **Free Company Spearman** (Spearman stats, `+2` Atk) for `15` Coin, **or** decline. Doesn't count toward Army Cap, can't be re-homed, costs `1` Coin upkeep, disbands if orphaned. |
+| `evt_tournament` | **The Regent's Tournament** | Summer | All Houses | *"Pavilion tents rise along the King's Road, where gilded lances win more standing than quiet thrift."* | Choose: pay `10` Coin for `2` Favor, or decline. |
+| `evt_plague` | **Lowland Fever** | Any except Winter | Most Keeps | *"Marsh mist settles over crowded ditches, spoiling stored grain and thinning the watch."* | Each Keep of the House with the most Keeps loses `6` growth-bar Food (minimum `0`). |
+| `evt_pilgrims` | **Pilgrim Caravans** | Spring, Summer | All Houses | *"Shrine-bound wagons swell the market roads, leaving stamped silver at every tollgate."* | `+2` Coin per Market owned (once). |
+| `evt_timber_boom` | **Timber Boom** | Spring, Autumn | All Houses | *"Dry riverbeds and steady winds let sawyers haul twice the heartwood out of the ridges."* | Lumber Mills `+1` Materials for `3` turns. |
+| `evt_iron_strike` | **A New Vein Struck** | Any | Map | *"A rockslide on the high crags lays bare a gleaming seam of grey bog-iron."* | One unowned Hills tile gets `hasIronDeposit = true` and is revealed to all Houses. |
+| `evt_deserters` | **Grumbling in the Ranks** | Any | Highest Upkeep | *"Sullen captains count copper at the pay-table while boots rot in the mud."* | Choose: pay `2×` this turn's upkeep in Coin, **or** highest-upkeep unit takes `6` true damage (can't take it below `1` HP). |
+| `evt_inspection` | **Royal Inspection** | Any | Lowest Favor | *"A Regent's herald rides into the lesser court, noting dutiful service overlooked by louder rivals."* | `+3` Favor (catch-up). |
+| `evt_fair_season` | **Fair Season** | Summer, Autumn | All Houses | *"Clear passes and calm waters bring merchant trains from the southern cities."* | Markets `+2` Coin for `3` turns. |
+
+---
+
+## 5. Crown Writs (12 Public Objectives)
+
+Published in sets of `3` at Turn 3 and every `6` turns thereafter (no repeat until `2` publications have passed). First-come reward; expires on the next publication.
+
+| ID | Writ Title | Flavor Line | Requirement | Reward |
+| :--- | :--- | :--- | :--- | :--- |
+| `writ_clear_camp` | **Rid the Roads of Brigands** | *"Hang the highwaymen from their own ridge-poles and the Crown will remember your zeal."* | Clear an Outlaw Camp | `4` Favor + `6` Coin |
+| `writ_annex` | **Bring the Elders to Heel** | *"Unclaimed hamlets pay no tax; bring their hearths under a chartered banner."* | Annex or capture a Frontier Village | `5` Favor |
+| `writ_watch` | **Light the Beacons** | *"Two stone towers burning through the dusk prove your wardens hold the high passes."* | Hold units on `2` Ancient Watchtowers at the same time | `4` Favor |
+| `writ_strongholds` | **Raise the Banners** | *"Timber palisades are for squatters; the Council honors Houses that raise stone strongholds."* | Own `2` Tier-2 Keeps | `5` Favor |
+| `writ_victories` | **Blood the Levies** | *"Letters of commendation are written in enemy steel, not parchment."* | Destroy `3` enemy units | `4` Favor + `6` Mat |
+| `writ_markets` | **Fill the Royal Coffers** | *"Chartered markets keep coin moving north and silver flowing back to the Regent."* | Own `2` Markets | `3` Favor + `8` Coin |
+| `writ_relics` | **Recover the Old Charters** | *"Beneath fallen arches lie seals older than the current dynasty; bring them to light."* | Explore `2` Relic Ruins | `4` Favor |
+| `writ_muster` | **Show the Crown's Strength** | *"Parade six banners under arms so every rival counts your spears twice."* | End a turn with `6` or more units | `3` Favor |
+| `writ_tithe` | **Pay the Regent's Tithe** | *"Gold speaks louder than oaths when the Exchequer calls the roll."* | Voluntarily pay `20` Coin (button on Writ card) | `3` Favor |
+| `writ_iron` | **Secure the Iron Veins** | *"He who feeds the royal smithies holds the Council's ear."* | Own `2` Iron Mines (Deep Smelteries count) | `4` Favor |
+| `writ_raze` | **Break the Usurper's Walls** | *"Tear down a rival's timberwork and let the wind whistle through his border."* | Raze an enemy Palisade or Watchtower | `3` Favor + `5` Mat |
+| `writ_capture` | **Punish the Disloyal** | *"Seize a rival's stronghold and the Regent will call it justice."* | Capture an enemy Keep | `6` Favor |
