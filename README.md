@@ -1,75 +1,21 @@
-# React + TypeScript + Vite
+# Marchlands
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A persistent turn-based frontier strategy game built for mobile portrait screens. It runs in the browser, installs to a phone's Home Screen, and plays offline with automatic IndexedDB saves.
 
-Currently, two official plugins are available:
+- **Play (live):** https://jtschick7-cyber.github.io/marchlands/
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+On iPhone, install the app to your Home Screen (**Share → Add to Home Screen**) before starting a campaign; the installed app keeps its own storage, apart from Safari. You can also export or import your campaign JSON anytime from **Menu → Export / Import Save JSON**.
 
-## React Compiler
+## For whoever builds it
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Start with [`AGENTS.md`](AGENTS.md). The full specification lives in [`docs/`](docs/): the game design (`GDD.md`), combat & economy balance (`BALANCE_MODEL.md`), content catalog (`CONTENT_CATALOG.md`), edge-case rulings (`EDGE_CASE_RULINGS.md`), design tokens (`DESIGN_TOKENS.md`), UX microcopy (`UX_MICROCOPY.md`), AI architecture (`AI_ARCHITECTURE.md`), and simulation gates (`SIMULATION_HARNESS.md`).
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm ci
+npm run dev       # local dev server
+npm run lint      # ESLint check
+npx vitest run    # headless engine, storage & CI simulation tests
+npm run build     # production PWA build (base: /marchlands/)
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+Node 22 recommended.

@@ -3,7 +3,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vite';
 
+const base = '/marchlands/';
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     tailwindcss(),
@@ -11,6 +14,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['pwa-icon.svg'],
       manifest: {
+        id: base,
         name: 'Marchlands',
         short_name: 'Marchlands',
         description: 'A Persistent Turn-Based Frontier Strategy Game',
@@ -18,7 +22,8 @@ export default defineConfig({
         background_color: '#0F172A',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        start_url: base,
+        scope: base,
         icons: [
           {
             src: 'pwa-icon.svg',
@@ -29,7 +34,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg}'],
+        globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        navigateFallback: 'index.html',
+        cleanupOutdatedCaches: true,
       },
     }),
   ],
