@@ -65,4 +65,37 @@ Spec Version: 0.3
 
 ## Balance passes
 
-*(No post-v0.3 simulation tuning passes recorded yet.)*
+### Pass 1 (Step 9 Headless Simulation Tuning — 2026-11-19)
+
+**Data & AI Tuning Changes (`src/data/`, plus tactical candidate deduplication & Easy economy multiplier):**
+* **House Vane nerf (`units.ts`, `improvements.ts`, `constants.ts`):** `longbowman` `attack 7 -> 5`, `maxHp 16 -> 14`, `matCost 13 -> 19`, `coinUpkeep 2 -> 3`, `LONGBOWMAN_TERRAIN_ATK_BONUS 0.25 -> 0.10`; `foresters_lodge` `matCost 8 -> 10`, `baseFood 2 -> 1`, `baseMaterials 2 -> 1`.
+* **Other Houses buffed to parity (`units.ts`, `improvements.ts`, `constants.ts`):** `oathsworn_halberdier` `attack 6 -> 7`, `matCost 13 -> 12`, `coinUpkeep 2 -> 1`, `deep_smeltery` `matCost 10 -> 8`; `gilded_lancer` `matCost 20 -> 17`, `coinUpkeep 3 -> 2`; `dusk_outrider` `matCost 14 -> 11`, `coinUpkeep 2 -> 1`; `vanguard_spearman` `attack 7 -> 8`, `defense 6 -> 7`, `matCost 13 -> 11`, `coinUpkeep 2 -> 1`, `signal_bastion` `matCost 9 -> 7`, `+1 Food / +1 Mat / +2 Coin`, `SIGNAL_BASTION_ADJ_ATK_BONUS 0.15 -> 0.20`.
+* **Mandate pacing (`constants.ts`, `content.ts`):** `KEEP_REPEAT_SURPLUS_FAVOR 2 -> 0`; trimmed select Writ Favor rewards (`writ_victories 4 -> 3`, `writ_muster 3 -> 2`, `writ_iron 4 -> 3`) so Dominion games reach median 40–80 turns with balanced Supremacy/Mandate mix.
+* **AI tactical coordination & difficulty scaling (`aiWeights.ts`, `constants.ts`, `tactical.ts`, `economy.ts`):** Lowered `riskAversion` (`0.70–1.35 -> 0.25–0.45`) and balanced House aggression weights; added `AI_MUSTER_MIN_UNITS = 2`, `AI_FOCUS_FIRE_WOUNDED_BONUS = 45`, `AI_SAME_TURN_FOCUS_BONUS = 35`, `AI_ALLY_FOLLOWUP_BONUS = 18`, `AI_SIM_FOCUS_FIRE_BONUS = 22`, `AI_SIM_FOCUS_KILL_BONUS = 36`; deduplicated tactical beam candidates by `(kind, targetId)`; set `AI_DIFFICULTY_CONFIG.easy.economyMultiplier = 0.70`.
+
+**Before vs. After Metrics (5-House Normal Dominion, 5-House Normal Chronicle, 4-House Mixed Difficulty):**
+
+| Gate | Target | Baseline (Before) | Post-Tuning (After) | Status |
+| :--- | :--- | :--- | :--- | :---: |
+| Invariant failures | `0` | `0` (25 games) | `0` (50+50+60 games) | **PASS** |
+| Win rate per House (5-House Dominion) | `12–28%` each | `vane 84.0%, ironhelm 0.0%, aurelia 4.0%, corvus 8.0%, solis 4.0%` | `vane 18.0%, ironhelm 26.0%, aurelia 22.0%, corvus 14.0%, solis 20.0%` | **PASS** |
+| Dominion median game length | `40–80` turns | `29` turns (`p10=22, p90=40`) | `43` turns (`p10=26, p90=94`) | **PASS** |
+| Dominion stalemate rate | `< 5%` | `0.0%` | `4.0%` (`2/50`) | **PASS** |
+| Victory type mix (Dominion) | No type `> 70%` | `mandate 72.0%, supremacy 28.0%` | `supremacy 66.0%, mandate 34.0%` | **PASS** |
+| Chronicle (Turn 33) 1st-to-5th score spread | `≥ 25%` of 1st | `91.2%` median | `88.4%` median | **PASS** |
+| Each specialization pick rate | `≥ 15%` | `54.1% / 27.0% / 18.9%` | `56.9% / 24.0% / 19.1%` | **PASS** |
+| AI turn time p95 | `< 250 ms` (Normal) / `< 500 ms` (Hard) | `77.2 ms` (Normal) | `84.4 ms` (Normal) / `69.5 ms` (Hard) | **PASS** |
+| AI focus-fire rate (Normal) | `≥ 50%` | `47.2%` (Dom) / `49.6%` (Chr) | `50.4%` (Dom) / `51.2%` (Chr) | **PASS** |
+| AI piecemeal rate (Normal) | `≤ 20%` | `7.3%` (Dom) / `7.7%` (Chr) | `5.4%` (Dom) / `7.1%` (Chr) | **PASS** |
+| Mixed difficulty (`hard-vs-normal`) | `≥ 60%` | `60.0%` (`12/20`) | `66.7%` (`20/30`) | **PASS** |
+| Mixed difficulty (`normal-vs-easy`) | `≥ 60%` | `35.0%` (`7/20`) | `80.0%` (`24/30`) | **PASS** |
+
+---
+
+## Implementation Milestones
+
+### Steps 10–11 — Persistence, AI Web Worker & Mobile-First PWA (2026-11-19)
+* **IndexedDB Persistence (`src/storage/persistence.ts`):** Added `idb` storage targeting `marchlands_db` (`CURRENT_SCHEMA_VERSION`), storing `SaveMetadata` alongside `GameState`, with `saveAutosave`, `loadAutosave`, manual save slots, `exportSaveJson`, `importSaveJson` (`specVersion === '0.3'` validation), non-blocking error handling, and `navigator.storage?.persist?.()`.
+* **AI Web Worker (`src/workers/aiWorker.ts`, `src/workers/runAiTurnWithWatchdog.ts`):** Offloaded `runAiTurn` to an ES-module Web Worker with an `8,000ms` watchdog that discards partial results, logs `ai_watchdog_timeout`, and advances cleanly on timeout/error.
+* **Headless UI Queries (`src/engine/queries.ts`):** Isolated net income, attack target enumeration, build adjacency previews, supremacy shares, and undo commit-point reasons inside `src/engine/` to keep `src/components/` free of game math.
+* **Mobile PWA Shell (`src/components/`, `src/App.tsx`, `vite.config.ts`, `index.html`, `src/index.css`):** Built `MapBoard` (`48x48` inline SVG, pan/pinch-zoom, `8px` tap threshold, exact `DESIGN_TOKENS.md` palette), `TopHud`, `BottomDrawer` (combat preview with `STEADFAST` / `PIKE BRACE`, build/train/annex/pillage/re-home, 20-snapshot Undo), `TitleScreen`, all v0.3 modals (`specialization_modal`, `draft_modal`, `event_modal`, Crown Council, fog-filtered Recap, 3-card Field Guide, `game_over` Chronicle breakdown), and `vite-plugin-pwa` manifest + service worker. Verified `0` TypeScript errors, `0` ESLint errors, `36/36` Vitest tests passing, clean production PWA build, and `375x812` mobile viewport audit (`0` horizontal overflow, `0` sub-`44px` buttons).
