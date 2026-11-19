@@ -12,7 +12,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['pwa-icon.svg'],
+      includeAssets: ['icons/apple-touch-icon-180.png', 'icons/favicon-64.png'],
       manifest: {
         id: base,
         name: 'Marchlands',
@@ -26,15 +26,27 @@ export default defineConfig({
         scope: base,
         icons: [
           {
-            src: 'pwa-icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
+            src: 'icons/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icons/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icons/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
       },
