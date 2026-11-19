@@ -1,37 +1,38 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Artifact #2: Marchlands Content & Flavor Catalog
 
-This catalog defines the complete narrative and mechanical content pools for *Marchlands*: **24 Royal Decrees**, **12 Relic Ruin Encounters**, **50 House-Specific Settlement Names** (10 per House), **14 Frontier Events**, and **12 Crown Writs**. All entries match the grounded, low-fantasy medieval frontier tone and map directly to the game engine's state schema.
+This catalog defines the complete narrative and mechanical content pools for *Marchlands*: **25 Royal Decrees**, **12 Relic Ruin Encounters**, **50 House-Specific Settlement Names** (10 per House), **14 Frontier Events**, and **12 Crown Writs**. All entries match the grounded, low-fantasy medieval frontier tone and map directly to the game engine's state schema.
 
 ---
 
-## 1. The 24 Royal Decrees (Milestone Draft Pool)
+## 1. The 25 Royal Decrees (Milestone Draft Pool)
 
-Every House starts Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, **Sapper Crew**, and its faction-unique building and signature unit unlocked. **House Aurelia** also starts owning `decree_iron_prospecting` (*Royal Mining Charter*) and `decree_master_smiths` (*Guild of Master Smiths*), which are removed from Aurelia's draft pool and count toward its decree score.
+Every House starts Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, **Sapper Crew**, and its faction-unique building and signature unit unlocked. **House Aurelia** also starts owning `decree_iron_prospecting` (*Royal Mining Charter*) and `decree_master_smiths` (*Guild of Master Smiths*), which are removed from Aurelia's draft pool and do **not** count toward its Chronicle decree score (`startingDecreeCount = 2`).
 
 * **Sapper Crew (Base Siege Unit, Turn 1):** *"Mantlets, mattocks and fire-hardened ladders — no wall on the frontier was ever built tall enough."*
-* **Draft Category Guarantee:** Each 3-card draft hand offers **1 Infrastructure Blueprint**, **1 Military Charter**, and **1 Kingdom Doctrine** drawn with the seeded PRNG from that House's *unowned* decrees in each category. When a category runs out, its slot fills from remaining categories in priority order **Doctrine → Infrastructure → Military**, with no duplicates in one hand. **Royal Reroll** (3 Favor) follows the same rule and may offer cards from the previous hand again.
+* **Draft Category Guarantee & Faction Exclusions:** `DecreeDef` supports optional `excludedHouseIds?: HouseId[]`. Redundant military charters are excluded from their House's draft pool (`decree_fletchers_guild`: `['vane']`; `decree_chivalric_order`: `['aurelia']`) and do not count toward its eligible pool (`24` eligible for Vane & Aurelia; `25` eligible for Ironhelm, Corvus & Solis). Each 3-card draft hand offers **1 Infrastructure Blueprint**, **1 Military Charter**, and **1 Kingdom Doctrine** drawn with the seeded PRNG from that House's *unowned eligible* decrees in each category. When a category runs out, its slot fills from remaining categories in priority order **Doctrine → Infrastructure → Military**, with no duplicates in one hand. **Royal Reroll** (3 Favor) follows the same rule and may offer cards from the previous hand again.
 
 ### Category A: Infrastructure Blueprints (6 Decrees)
 
 | ID | Decree Title | Flavor Lore | Exact Mechanical Effect |
 | :--- | :--- | :--- | :--- |
 | `decree_iron_prospecting` | **Royal Mining Charter** | *"He who controls the iron veins of the ridge commands the rhythm of every forge in the valley."* | Unlocks construction of the **Iron Mine** improvement (`8 Mat`, requires Iron Deposit, `+3 Materials/turn`). |
-| `decree_master_smiths` | **Guild of Master Smiths** | *"Bellows fed by river timber and ridge ore turn raw pig-iron into plate fit for noble shock cavalry."* | Unlocks construction of the **Smithy** improvement (`10 Mat`, `+1 Materials/turn`; enables **Knight** / **Gilded Lancer** training when adjacent to both an Iron Mine and a Lumber Mill). |
+| `decree_master_smiths` | **Guild of Master Smiths** | *"Bellows fed by river timber and ridge ore turn raw pig-iron into plate fit for noble shock cavalry."* | Unlocks construction of the **Smithy** improvement (`10 Mat`, `+1 Materials/turn`; enables **Knight** / **Gilded Lancer** training when adjacent to both an Iron Mine (or Deep Smeltery) and a Lumber Mill). |
 | `decree_timber_palisades` | **Border Palisade Edict** | *"Sharpened oak trunks sunk six feet deep have broken more warbands than gold ever bought."* | Unlocks construction of the **Palisade Wall** (`5 Mat` / `3 Mat` for Ironhelm; blocks enemy unit movement and grants `+30% Defense` to friendly units standing **on** the tile). |
 | `decree_frontier_towers` | **Watchmen of the March** | *"A single beacon lit upon a stone tower warns the valley three days before riders crest the hills."* | Unlocks construction of the **Watchtower** (`7 Mat` / `5 Mat` for Ironhelm; permanently reveals a 5x5 fog radius and grants `+30% Defense`). |
 | `decree_chartered_markets` | **Chartered Trade Markets** | *"Where roads cross and grain wagons gather, the Crown's tax collectors are never far behind."* | Unlocks construction of the **Market** (`8 Mat`, `+3 Coin/turn`, plus `+1 Coin/turn` per adjacent Farm or River tile). |
 | `decree_stone_granaries` | **Tithe Granaries** | *"Dry cellars and salted stores ensure a hard frost breeds loyalty rather than famine."* | Unlocks construction of the **Granary** (`8 Mat`, `+2 Food/turn`, plus `+1 Food/turn` to every adjacent Farm or Forester's Lodge). |
 
-### Category B: Military Charters (4 Decrees)
+### Category B: Military Charters (5 Decrees)
 
 | ID | Decree Title | Flavor Lore | Exact Mechanical Effect |
 | :--- | :--- | :--- | :--- |
-| `decree_fletchers_guild` | **Fletchers' Guild** | *"Seasoned ash shafts and goose-feather fletching turn woodsmen into disciplined volley archers."* | Unlocks recruitment of the **Archer** unit (`10 Mat`, `1 Coin upkeep`, Ranged class, Range 2). |
+| `decree_fletchers_guild` | **Fletchers' Guild** | *"Seasoned ash shafts and goose-feather fletching turn woodsmen into disciplined volley archers."* | Unlocks recruitment of the **Archer** unit (`10 Mat`, `1 Coin upkeep`, Ranged class, Range 2). *Excluded for House Vane (`excludedHouseIds: ['vane']`).* |
 | `decree_steel_arbalests` | **Steel Arbalests** | *"A windlass crossbow requires half the training of a warbow and punches cleanly through shield walls."* | Unlocks recruitment of the **Crossbowman** unit (`14 Mat`, `2 Coin upkeep`, Ranged class, Range 2, High Attack). |
-| `decree_chivalric_order` | **Chivalric Order** | *"Barded warhorses and heavy lances shatter archer lines before a second volley can be loosed."* | Unlocks recruitment of the **Knight** unit (`18 Mat`, `3 Coin upkeep`, Cavalry class; requires a Keep with an active Smithy adjacency combo). |
-| `decree_siege_engineers` | **Siege Engineers** | *"Iron-capped battering rams wheeled under timber roofs reduce stubborn palisades to splinters."* | Unlocks recruitment of the **Siege Ram** unit (`16 Mat`, `2 Coin upkeep`, Siege class; `10 Attack` vs. Keeps, Palisades, and Watchtowers). |
+| `decree_sword_guilds` | **Chartered Men-at-Arms** | *"Mail hauberks, poleaxes, and heavy longswords turn seasoned footmen into wall-breakers who cleave straight through pike lines."* | Unlocks recruitment of the **Men-at-Arms** unit (`12 Mat`, `1 Coin upkeep`, `infantry` class, counters `spearman`). |
+| `decree_chivalric_order` | **Chivalric Order** | *"Barded warhorses and heavy lances shatter archer lines before a second volley can be loosed."* | Unlocks recruitment of the **Knight** unit (`18 Mat`, `3 Coin upkeep`, Cavalry class; requires a Keep with an active Smithy adjacency combo). *Excluded for House Aurelia (`excludedHouseIds: ['aurelia']`).* |
+| `decree_siege_engineers` | **Siege Engineers** | *"Iron-capped battering rams wheeled under timber roofs reduce stubborn palisades to splinters."* | Unlocks recruitment of the **Siege Ram** unit (`16 Mat`, `2 Coin upkeep`, Siege class; `8 Attack` vs. Keeps, Palisades, and Watchtowers). |
 
 ### Category C: Kingdom Doctrines & Passives (14 Decrees)
 

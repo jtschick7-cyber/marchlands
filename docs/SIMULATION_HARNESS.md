@@ -1,4 +1,4 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Marchlands: Headless Simulation Harness & Balance Gates
 
@@ -33,6 +33,7 @@ npx tsx scripts/sim.ts --games 200 --seed 1 --houses 5 --mode dominion|chronicle
 
 * Every House is AI-controlled, using its own personality. AI fog is honest: each AI decides only from what it can see.
 * Game *i* uses seed `seed + i`. House seating rotates so every House plays from every start position.
+* `--maxTurns` defaults to `150` in Dominion mode; Chronicle mode ends after **Turn 33**.
 
 ---
 
@@ -64,7 +65,8 @@ Written to `sim-reports/<timestamp>.json` plus a human-readable `.md` summary:
 * **AI coordination metrics:**
   * *Focus-fire rate:* share of AI kills where `2` or more AI units damaged the victim that turn.
   * *Piecemeal rate:* share of AI attack turns where exactly one unit attacked and was killed by retaliation or by the next enemy turn.
-* **One-Shot Protection triggers** per game; **Sapper Crew vs. Siege Ram** usage; **War Camp** count per Corvus game.
+* **One-Shot Protection triggers** per game; **Spearman Brace triggers** per game; **Men-at-Arms** usage; **Sapper Crew vs. Siege Ram** usage; **War Camp** count per Corvus game.
+* **Median decrees owned at game end**; **Ancient Watchtower occupied turns** per game.
 
 ---
 
@@ -78,7 +80,7 @@ Run the full gate suite at **Normal** difficulty. Also run `50` games at Easy an
 | Dominion median game length | `40–80` turns |
 | Dominion stalemate rate | `< 5%` |
 | Victory type mix (Dominion) | No single type `> 70%` |
-| Chronicle: score spread between 1st and 5th | `≥ 25%` of 1st place's score |
+| Chronicle (Turn 33): score spread between 1st and 5th | `≥ 25%` of 1st place's score |
 | Each specialization's pick rate | `≥ 15%` |
 | AI turn time p95 (Node, desktop) | `< 250 ms` per House (Normal); `< 500 ms` (Hard) |
 | AI focus-fire rate (Normal) | `≥ 50%` |

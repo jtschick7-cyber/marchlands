@@ -1,6 +1,37 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Marchlands Changelog
+
+## v0.3
+
+### Part 1 — Combat, Units & Tactical Rules
+* **C1 — Spearman "Brace" Retaliation Against Cavalry:** Surviving `spearman` units retaliating against melee `cavalry` attacks calculate retaliation `EffAtk` using their pre-hit HP ratio (`hpBefore / maxHp`). Added `PIKE BRACE` combat preview badge.
+* **C2 — Melee-Only Bypass for One-Shot Protection (Steadfast):** Restricted Steadfast bypass to melee attackers (`range === 1`) with counter advantage (`CounterMult > 1.0`); ranged units can never one-shot a full-HP unit. Removed the v0.2 Longbowman one-shot example.
+* **C3 — Soften Siege Ram Burst & Raise Base Keep HP:** Raised `maxKeepHp` from `20`/`30` to `24`/`34`, set capture HP to `Math.floor(maxKeepHp / 2)` (`12`/`17`), lowered `siege_ram` structure Attack from `10` to `8`, and clarified unmanned fortification defense (`12 HP`, `4 Def`, `0.00 DefBonus`, *Mortar & Stonework* `25%` siege reduction still applies).
+* **C4 — Men-at-Arms (`men_at_arms`):** Added mid-tier `infantry` unit (`22 HP, 7 Atk, 5 Def, 2 Mov, 12 Mat, 1 Coin`) unlocked by new Military Charter `decree_sword_guilds` (*Chartered Men-at-Arms*), expanding the pool to `25` decrees, with SVG blueprint in `DESIGN_TOKENS.md`.
+* **C5 — Summoning Sickness & Training Tile Rules:** Newly trained units and hired `free_company_spearman` spawn with `hasMoved = true` and `hasAttacked = true` (no spawn-turn healing); training requires an unoccupied Keep center tile; defined `evt_free_company` Capital spawn fallback.
+* **C6 — Manual Keep Re-Homing:** Allowed friendly units (except `free_company_spearman`) standing on a friendly Keep with open Army Cap to **Re-home Here** for `0` resources and `0` actions (non-commit/undoable, clears `'orphaned'`).
+
+### Part 2 — Progression, Economy & Faction Balance
+* **C7 — Slow Mid-Game Decree Draft Inflation:** Changed Coin milestones to escalating intervals (`coinMilestonesClaimed`, `nextCoinMilestone += 20 * (coinMilestonesClaimed + 1)`: `25 -> 65 -> 125 -> 205...`) and capped Tier-2 Keep repeat drafts to the first repeat (`repeatMilestonesClaimed === 0`); subsequent repeats award **Royal Surplus** (`+10 Coin`, `+2 Royal Favor`, no draft).
+* **C8 — Exclude Redundant Military Charters & Fix Starting Decree Score:** Added `excludedHouseIds` on `DecreeDef` (`decree_fletchers_guild` excluded for Vane; `decree_chivalric_order` excluded for Aurelia; `24` eligible for Vane/Aurelia, `25` for others) and `startingDecreeCount` (`2` for Aurelia) so starting decrees do not award free Chronicle points.
+* **C9 — Relax Peaceful Annexation Food Sourcing:** Peaceful Annexation automatically draws `12` Food from the closest (Chebyshev) friendly Keep with `foodProgress >= requiredFood` (tie-break highest `foodProgress`, then `keep.id`) instead of requiring the annexing unit's `homeKeepId`.
+
+### Part 3 — Map Generation, Villages & Landmarks
+* **C10 — Neutral Frontier Village Combat Stats & Seizure Trade-Offs:** Added `tile.villageHp` (`12 HP`, `3 Atk`, `4 Def`, `+0.20 DefBonus`, `+3 HP/round` regen); Peaceful Annexation yields a `24/24 HP` Keep + `+1 Royal Favor`, while violent seizure yields an `8/24 HP` Keep and `-2 Royal Favor`.
+* **C11 — Smithy Adjacency for `deep_smeltery` & Capital `mapGen` Geometry Guarantee:** Allowed `deep_smeltery` to satisfy `smithy`'s `iron_mine` adjacency, and required every Capital's `5x5` to contain a valid Iron Deposit -> Smithy -> Lumber Mill adjacency chain (never relaxed for Aurelia).
+* **C12 — Ongoing Value for Ancient Watchtowers:** Made `7x7` fog reveal per-House (first House overall still earns `+10` Landmark score), added `+0.30 DefBonus` when standing on one, and added `+2 Coin/turn` plus `+1 Royal Favor` on even turns while occupied.
+
+### Part 4 — Campaign Calendar & Chronicle Mode
+* **C13 — End Chronicle Mode on Turn 33:** Shortened Chronicle mode from `Turn 36` to `Turn 33` (end of Year 3 Autumn — *Chronicle of the Three Harvests*) and suppressed Turn 33 Writ publication in Chronicle mode (`5` clean Writ cycles).
+
+### Part 5 — AI Architecture Refinements
+* **C14 — Class-Aware AI Threat Map:** Replaced scalar Spearman threat map with 4-class `TileThreat` (`vsSpearman`, `vsCavalry`, `vsRanged`, `vsInfantry`).
+* **C15 — Lightweight Combat Projection & Action Pruning:** Replaced full `GameState` cloning in tactical beam search with `TacticalSimState`, fixed heuristic unit ordering, top-`K` candidate pruning (`K = 2/4/6`), optional O(N) pair-swap pass, and canonical replay.
+* **C16 — Post-Combat AI Unit Training:** Reordered `runAiTurn` to `strategic -> tactical -> economy -> end turn` with optional opportunistic manual Keep re-homing.
+* **C17 — Explicit AI `'expand'` Targets & Muster Timeout:** Added deduplicated fog-honest `'expand'` target assignment and `rallyStartedTurn` with `3`-turn Muster timeout and engage-if-attacked trigger.
+
+---
 
 ## v0.2
 
@@ -34,4 +65,4 @@ Spec Version: 0.2
 
 ## Balance passes
 
-*(No post-v0.2 simulation tuning passes recorded yet.)*
+*(No post-v0.3 simulation tuning passes recorded yet.)*

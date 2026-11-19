@@ -1,4 +1,4 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Artifact #5: Marchlands UX Microcopy, Tooltips & Mobile Onboarding
 
@@ -16,7 +16,7 @@ When the player taps any resource pill or status badge in the `TopHud`, display 
 | **Materials Pill** | `{materials}` `(+{netMat})` | **Materials:** Spent on tile improvements, defensive palisades, and training military units. |
 | **Coin Pill** | `{coin}` `(+{netCoin})` | **Coin:** Pays elite unit upkeep each turn and counts toward lifetime Coin milestones for Royal Decree drafts. |
 | **Favor Pill** | `{favor}` | **Royal Favor:** Earned by completing Crown Writs and events. Spend in **Crown Audience** or hold `30+` with `4+` Keeps to claim the Regent's Mandate. |
-| **Keeps Badge** | `{ownedKeeps}/{totalKeeps}` | **Dominion / Chronicle:** Hold `≥ 65%` of owned Keeps (min `5`) or eliminate all rivals in Dominion; score highest by Turn 36 in Chronicle. |
+| **Keeps Badge** | `{ownedKeeps}/{totalKeeps}` | **Dominion / Chronicle:** Hold `≥ 65%` of owned Keeps (min `5`) or eliminate all rivals in Dominion; score highest by Turn 33 in Chronicle. |
 | **Season Badge** | `{seasonIcon} {season} ({turnsLeft}t)` | **Season & Year:** `Year {year} • {season}`. Shows active seasonal modifiers and turns remaining until the next season and Frontier Event. |
 | **Score Badge** | `{score} pts` | **Realm Score:** Live Chronicle score across Territory, Keeps, Decrees, Military, Exploration, Landmarks, and Crown Favor. |
 | **Turn Counter** | `Turn {turnNumber}` | **Campaign Chronicle:** Auto-saved after every move. Safe to close or switch apps anytime. |
@@ -35,7 +35,8 @@ Contextual guidance lines displayed at the top of the `BottomDrawer` so mobile p
 * **Open Owned Tile Selected:** *"Select an improvement below to preview adjacency bonuses on this tile."*
 * **Keep Selected (Open Army Cap):** *"Train troops ({usedCap}/{maxCap} Cap) or inspect border growth ({foodProgress}/{foodThreshold} Food)."*
 * **Keep Selected (Army Cap Full):** *"Garrison full ({maxCap}/{maxCap}). Upgrade Keep to Tier 2 or lose a unit to train more."*
-* **Neutral Frontier Village Adjacent:** *"Spend {annexFood} Food (from unit's home Keep) + {annexCoin} Coin to annex peacefully, or attack to seize by force."*
+* **Neutral Frontier Village Adjacent:** *"Spend {annexFood} Food (from {payingKeepName}) + {annexCoin} Coin to annex peacefully (+1 Favor), or attack to seize by force (-2 Favor)."* *(If no single friendly Keep has enough Food, Peaceful Annexation is disabled with tooltip: `"Requires {annexFood} Food in one Keep (highest: {bestKeepFood})"`.)*
+* **Manual Keep Re-Homing (Eligible Unit on Friendly Keep):** Compact button `Re-home to {keepName} ({usedCap}/{maxCap})` when `unit.homeKeepId !== keep.id` and the Keep has an open Army Cap slot.
 
 ### Undo Button & Commit-Point Tooltips
 * **Active Undo:** `Undo ({undoCount})` — *"Reverts your last action this turn."*
@@ -66,11 +67,14 @@ Displayed inside the `BottomDrawer` combat preview card whenever a player select
 * `forest`: `Dense Timber (+25% Def | Blocks Cavalry)`
 * `palisade`: `Timber Palisade (+30% Def | Blocks Enemy Passage)`
 * `watchtower`: `Stone Watchtower (+30% Def | 5x5 Vision)`
+* `ancient_watchtower`: `Ancient Watchtower (+30% Def | +2 Coin/t, +1 Favor even turns)`
+* `frontier_village`: `Frontier Village (+20% Def | {villageHp}/12 Garrison HP)`
 * `keep`: `Fortified Keep (+35% Def | {keepHp}/{maxKeepHp} Garrison HP)`
 
 ### Combat Forecast Lines
 * **Lethal Blow Forecast:** `DECISIVE STRIKE — Target will be destroyed!`
-* **One-Shot Protection Forecast:** `Survives at 1 HP (Steadfast)`
+* **One-Shot Protection Forecast:** `Survives at 1 HP (Steadfast)` *(triggered whenever a full-HP target would be killed by a ranged attack or a non-counter melee attack)*
+* **Spearman Brace Forecast:** `PIKE BRACE — Retaliates at pre-hit strength!` *(shown whenever a Cavalry unit targets a Spearman)*
 * **Retaliation Warning:** `Enemy will retaliate for ~{retaliationDmg} dmg.`
 * **Safe Ranged Strike:** `Ranged Volley — No enemy retaliation.`
 * **Siege Structure Strike:** `Battering Assault — Deals heavy structure damage with zero retaliation.`
@@ -89,7 +93,7 @@ Displayed live on the map tile badge and inside the `BottomDrawer` build preview
 * **Granary + Adjacent Farms:** `+1 Food to each neighboring Farm`
 * **Palisade Placement:** `Blocks enemy movement | +30% Def to defenders`
 * **Forester's Lodge (Vane):** `+2 Food, +2 Mat | Preserves Forest (+1 Mat Passive)`
-* **Deep Smeltery (Ironhelm):** `+4 Mat, +2 Coin | Operates on bare Mountain`
+* **Deep Smeltery (Ironhelm):** `+4 Mat, +2 Coin | Operates on bare Mountain & counts as Iron Mine for Smithy`
 * **River Tollhouse (Aurelia):** `+3 Coin | Acts as a bridge for friendly units`
 * **War Camp (Corvus):** `+1 Materials | Raises this Keep's Army Cap by +1`
 * **Signal Bastion (Solis):** `+1 Coin | Reveals 5x5 fog & grants +15% Atk adjacent`
@@ -122,7 +126,7 @@ Shown automatically on the player's first campaign launch (and accessible anytim
 ### Card 3: Draft Decrees & Claim the March
 * **Headline:** Adapt to the Wilderness
 * **Body:** Every Keep upgrade and Coin milestone triggers a **1-of-3 Royal Decree Draft**—unlocking new blueprints, elite troops, and kingdom passives. Scout **Watchtowers**, raid **Outlaw Camps**, complete **Crown Writs**, and annex **Frontier Villages** to rule the March.
-* **Key Tip Pill:** *Win by Conquest, Supremacy (65% & 5+ Keeps), Regent's Mandate, or Turn-36 Chronicle Score.*
+* **Key Tip Pill:** *Win by Conquest, Supremacy (65% & 5+ Keeps), Regent's Mandate, or Turn-33 Chronicle Score.*
 
 ---
 
@@ -132,19 +136,19 @@ Shown automatically on the player's first campaign launch (and accessible anytim
 * **Game Subtitle:** *A Persistent Frontier Strategy Game*
 * **Resume Card Header:** `Resume Chronicle — {houseName}`
 * **Resume Card Subtext:** `Turn {turnNumber} • {mode} • {ownedKeeps} Keeps Held • Last played {relativeTime}`
-* **New Campaign Setup Prompt:** *"Choose your Noble House, campaign mode (Dominion or 36-Turn Chronicle), AI difficulty (Easy, Normal, or Hard), and rival count (4 or 5 Houses). Your campaign saves automatically after every move."*
+* **New Campaign Setup Prompt:** *"Choose your Noble House, campaign mode (Dominion or 33-Turn Chronicle), AI difficulty (Easy, Normal, or Hard), and rival count (4 or 5 Houses). Your campaign saves automatically after every move."*
 
 ### Tier-2 Keep Specialization Modal (`phase === 'specialization_modal'`)
 * **Modal Title:** `Charter Your Stronghold`
 * **Subtitle:** *"{keepName} has grown to a Tier-2 Stronghold. Choose its permanent charter before drafting a Royal Decree."*
 * **Garrison Seat:**
-  * *Effect:* `Cap 4→5 • Keep HP 20→30 (+6 regen) • +10% Def in territory • Palisade cap 5`
+  * *Effect:* `Cap 4→5 • Keep HP 24→34 (+6 regen) • +10% Def in territory • Palisade cap 5`
   * *Flavor:* *"Thickened curtain walls, deep cisterns, and a permanent muster yard turn a frontier keep into an iron gate."*
 * **Market Town:**
   * *Effect:* `+4 Coin/turn • Markets +2 Coin • -20% Coin on Peaceful Annexation`
   * *Flavor:* *"Chartered stalls and toll-scales draw river merchants from across the southern shires."*
 * **Granary Seat:**
-  * *Effect:* `+2 Food/turn • Farms +1 Food • Repeat-draft threshold 36→28 Food`
+  * *Effect:* `+2 Food/turn • Farms +1 Food • Repeat-milestone threshold 36→28 Food`
   * *Flavor:* *"Stone-lined cellars and salted stores keep the surrounding hamlets fed through the longest frost."*
 
 ### Victory Template: Classic Conquest (`victoryType === 'conquest'`)
@@ -163,9 +167,9 @@ Shown automatically on the player's first campaign launch (and accessible anytim
 * **Narrative Summary:** *"Holding {favor} Royal Favor and {ownedKeeps} Keeps for three unyielding turns, {houseName} receives the Regent Council's seal as sovereign protector of the Marchlands."*
 
 ### Victory Template: Chronicle Score (`victoryType === 'score'`)
-* **Banner Title:** **CHRONICLE OF THE THREE YEARS**
-* **Subtitle:** *Chronicle Victory — Turn 36 ({score} pts)*
-* **Narrative Summary:** *"When the third winter closes on Turn 36, {houseName} stands foremost in the Regent's ledger—measured in land, stone, steel, and royal favor."*
+* **Banner Title:** **CHRONICLE OF THE THREE HARVESTS**
+* **Subtitle:** *Chronicle Victory — Turn 33 ({score} pts)*
+* **Narrative Summary:** *"When the third autumn closes on Turn 33, {houseName} stands foremost in the Regent's ledger—measured in land, stone, steel, and royal favor."*
 * **Final Ranking Table:** Displays all Houses ranked 1st–5th with per-category score breakdown (*Territory, Keeps, Decrees, Military, Exploration, Landmarks, Crown, Treasury*).
 
 ### Defeat Template: House Eliminated (`isEliminated === true`)
@@ -178,7 +182,7 @@ Shown automatically on the player's first campaign launch (and accessible anytim
 * **Mode & Difficulty:** `{mode} • {difficulty}`
 * **Campaign Duration:** `{turnNumber} Turns`
 * **Settlements Held:** `{ownedKeeps} / {totalKeeps} Keeps`
-* **Royal Decrees Enacted:** `{decreeCount} / 24`
+* **Royal Decrees Enacted:** `{decreeCount} / {eligibleDecreeCount}`
 * **Map Seed:** `{rngSeed}` *(Tap to copy seed for replay)*
 
 ---

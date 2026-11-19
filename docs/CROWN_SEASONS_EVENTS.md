@@ -1,4 +1,4 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Marchlands: The Crown, Seasons & Frontier Events
 
@@ -11,9 +11,11 @@ This document specifies the **Crown** (Royal Favor, Crown Writs, Crown Audience,
 ### Royal Favor
 * Tracked per House via `house.favor` (current, spendable) and `house.stats.lifetimeFavor` (total ever earned; used for Chronicle scoring).
 * Every House's current Favor is public and displayed in the HUD rival panel.
+* **Sources & Penalties:** Crown Writs, Frontier Events, **Peaceful Frontier Village Annexation** (`+1` Favor), **Ancient Watchtower occupation** (`+1` Favor on even turns, `turnNumber % 2 === 0`, counted in `stats.lifetimeFavor`), and Tier-2 Keep **Royal Surplus** (`+2` Favor on 2nd+ repeat milestones). **Violent Frontier Village seizure** deducts `2` Favor (clamped at `0`).
 
 ### Crown Writs (Public Objectives)
 * At the start of **Turn 3**, and every **6 turns** thereafter (Turns 3, 9, 15, …), the Crown publishes **3 Writs** drawn with the seeded PRNG from the 12-Writ pool below.
+* **Chronicle Mode Finale Rule:** Because Chronicle mode ends after **Turn 33** (end of Year 3 Autumn), new Writ publication on Turn `33` is suppressed (`if (mode === 'chronicle' && turnNumber === 33) skip publication`). The Turn `27` Writs remain active through the Turn `33` finale, giving `5` clean Writ cycles (Turns `3, 9, 15, 21, 27`).
 * A Writ cannot be published again until **2 more publications** have passed (tracked in `crown.recentWritIds`).
 * Each Writ is **first-come**: the first House to complete it receives the full reward. Later finishers in the same window receive nothing. Writs expire when the next publication happens.
 * Completion is checked at the **end of each House's turn**. "Within this window" means since the Writ was published.
@@ -60,7 +62,7 @@ Available at most **once per turn per House** (`house.audienceUsedThisTurn: bool
 
 ## 2. Seasonal Calendar
 
-* **Cycle:** Turns `1–3` **Spring**, `4–6` **Summer**, `7–9` **Autumn**, `10–12` **Winter**, then repeating. One year = `12` turns.
+* **Cycle:** Turns `1–3` **Spring**, `4–6` **Summer**, `7–9` **Autumn**, `10–12` **Winter**, then repeating. One year = `12` turns. *(Chronicle mode ends after Turn `33` — the end of Year 3 Autumn, before the 3rd Winter frost arrives.)*
 * **Derivation (never stored separately):**
   * `season = ['spring', 'summer', 'autumn', 'winter'][Math.floor((turnNumber - 1) / 3) % 4]`
   * `year = Math.floor((turnNumber - 1) / 12) + 1`
@@ -91,7 +93,7 @@ Available at most **once per turn per House** (`house.audienceUsedThisTurn: bool
 | `evt_blight` | Blight in the Fields | Spring, Summer | Leader | Their Farms `−1` Food for `3` turns |
 | `evt_hard_frost` | The Long Frost | Winter | All Houses | Winter attrition is `4` instead of `2` this season |
 | `evt_outlaw_resurgence` | Outlaw Resurgence | Any | Map | Spawn `1` Outlaw Camp (with Bandit) on an empty, unowned, passable tile `≥ 4` tiles from any Keep. Skip if none qualifies. |
-| `evt_free_company` | A Free Company Rides North | Summer, Autumn | Trailing | Choose: hire a **Free Company Spearman** (`free_company_spearman`: Spearman stats, `+2` Atk) for `15` Coin, **or** decline. Doesn't count toward Army Cap, can't be re-homed, costs `1` Coin upkeep, disbands if orphaned. |
+| `evt_free_company` | A Free Company Rides North | Summer, Autumn | Trailing | Choose: hire a **Free Company Spearman** (`free_company_spearman`: Spearman stats, `+2` Atk) for `15` Coin, **or** decline. Spawns on Capital tile if unoccupied (else nearest unoccupied passable tile in Capital territory, tie-break `tileKey`; option disabled if none available) with summoning sickness. Doesn't count toward Army Cap, can't be re-homed, costs `1` Coin upkeep, disbands if orphaned. |
 | `evt_tournament` | The Regent's Tournament | Summer | All Houses | Choose: pay `10` Coin for `2` Favor, or decline |
 | `evt_plague` | Lowland Fever | Any except Winter | House with most Keeps | Each of its Keeps loses `6` growth-bar Food (minimum `0`) |
 | `evt_pilgrims` | Pilgrim Caravans | Spring, Summer | All Houses | `+2` Coin per Market owned (once) |

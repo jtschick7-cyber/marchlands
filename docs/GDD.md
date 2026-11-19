@@ -1,4 +1,4 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Master Game Design Document: *Marchlands*
 
@@ -33,16 +33,16 @@ Spec Version: 0.2
 * **Map Parameters:** 22x22 square tile grid populated with 4 or 5 total Houses (Player + 3–4 AI rivals), neutral frontier villages, ancient watchtowers, relic ruins, and outlaw camps.
 * **Game Modes (`GameState.mode`):**
   * **Dominion (`'dominion'`):** Open-ended campaign won via Conquest, Territorial Supremacy, or Regent's Mandate. No turn limit (the simulation harness uses a safety cap of 150 turns).
-  * **Chronicle (`'chronicle'`):** Scored campaign ending after the last House finishes **Turn 36** (3 in-game years). The highest score wins (see `BALANCE_MODEL.md` §6). Conquest still ends the game early (the winner ranks 1st); Supremacy and Mandate are disabled.
+  * **Chronicle (`'chronicle'`):** Scored campaign ending after the last House finishes **Turn 33** (end of Year 3 Autumn, before the 3rd Winter frost arrives). The highest score wins (see `BALANCE_MODEL.md` §6). Conquest still ends the game early (the winner ranks 1st); Supremacy and Mandate are disabled.
 
 | Condition | Dominion Mode | Chronicle Mode |
 | :--- | :---: | :---: |
 | **Conquest:** Every rival House eliminated (a House is eliminated at `0` Keeps; losing a capital alone does not eliminate it) | ✅ | ✅ *(ends early; winner ranks 1st)* |
 | **Supremacy:** Own `≥ 65%` of all Keeps owned by any non-eliminated House **and** own `≥ 5` Keeps at turn end *(neutral villages are not counted)* | ✅ | ❌ |
 | **Regent's Mandate:** Hold Claim (`≥ 30` Favor & `≥ 4` Keeps) for 3 turns (see `CROWN_SEASONS_EVENTS.md`) | ✅ | ❌ |
-| **Score at Turn Limit (Turn 36):** Highest score wins | ❌ | ✅ |
+| **Score at Turn Limit (Turn 33):** Highest score wins | ❌ | ✅ |
 
-* **Victory Priority Order (at the end of each House's turn):** Elimination check → Conquest → Mandate → Supremacy. The Score check runs only after the final House's turn on Turn 36.
+* **Victory Priority Order (at the end of each House's turn):** Elimination check → Conquest → Mandate → Supremacy. The Score check runs only after the final House's turn on Turn 33.
 * **Player Defeat:** If the human player's House is eliminated (`0` Keeps), the game ends with the Defeat screen, regardless of mode.
 
 ---
@@ -72,7 +72,7 @@ Every House shares the core ruleset and is defined by **1 Passive Trait**, **1 U
 
 | Resource | Primary Sources | Primary Sinks | Strategic Tension |
 | :--- | :--- | :--- | :--- |
-| **Food** | Farms, River Fisheries, Forester's Lodges | Keep Level-Ups (per-Keep Growth Bar), Peaceful Annexations (`12` Food from annexing unit's `homeKeepId` bar) | Pushes border expansion from 3x3 to 5x5 and triggers Milestone Drafts. |
+| **Food** | Farms, River Fisheries, Forester's Lodges | Keep Level-Ups (per-Keep Growth Bar), Peaceful Annexations (`12` Food from the closest friendly Keep with enough Food) | Pushes border expansion from 3x3 to 5x5 and triggers Milestone Drafts. |
 | **Materials** | Lumber Mills, Quarries, Iron Mines | Tile Buildings, Palisades, Unit Recruitment | Forces a direct choice every turn between economic infrastructure and military troops. |
 | **Coin** | Keeps, Tollhouses, Markets, Outlaw Bounties | Elite Unit Upkeep, Village Annexations, Crown Audience Actions (see Royal Favor) | Caps late-game elite unit spam; expanding without Coin income stalls your army. |
 
@@ -89,9 +89,9 @@ The Marchlands cycle through **3-turn Seasons** (**Spring**, **Summer**, **Autum
 
 ### Stronghold Specialization (Tier-2)
 When a Keep reaches Tier 2, its owner chooses **one permanent specialization** before the Royal Decree Draft that the level-up also triggers:
-* **Garrison Seat:** Army Cap `4 -> 5`, `maxKeepHp` `20 -> 30`, Keep regen `+4 -> +6`, friendly units inside this Keep's territory gain `+0.10 DefBonus`, Palisade cap `4 -> 5`.
+* **Garrison Seat:** Army Cap `4 -> 5`, `maxKeepHp` `24 -> 34`, Keep regen `+4 -> +6`, friendly units inside this Keep's territory gain `+0.10 DefBonus`, Palisade cap `4 -> 5`.
 * **Market Town:** `+4 Coin/turn`, Markets in this territory yield `+2 Coin` more, and Peaceful Annexation costs `20%` less Coin while the House owns at least one Market Town.
-* **Granary Seat:** `+2 Food/turn`, Farms in this territory yield `+1 Food`, and this Keep's repeat-draft threshold drops `36 -> 28` Food.
+* **Granary Seat:** `+2 Food/turn`, Farms in this territory yield `+1 Food`, and this Keep's repeat-milestone threshold drops `36 -> 28` Food.
 
 ### Spatial Adjacency Matrix
 
@@ -99,42 +99,43 @@ When a Keep reaches Tier 2, its owner chooses **one permanent specialization** b
 | :--- | :--- | :--- |
 | **Farm** | Plains | **+2 Food** when placed adjacent to a River tile. |
 | **Lumber Mill** | Plains, Hills | **+2 Materials** when placed adjacent to 2 or more Forest tiles. |
-| **Smithy** | Plains, Hills | Unlocks Heavy Cavalry (`knight` / `gilded_lancer`) recruitment at that Keep when adjacent to both an **Iron Mine** and a **Lumber Mill**. |
+| **Smithy** | Plains, Hills | Unlocks Heavy Cavalry (`knight` / `gilded_lancer`) recruitment at that Keep when adjacent to both an **Iron Mine** (or **Deep Smeltery**) and a **Lumber Mill**. |
 | **Palisade Wall / Watchtower** | Border Tile | Occupies the tile, blocks enemy movement across it (Palisade), and grants **+0.30 `DefBonus`** to friendly units **standing on** the tile. |
 
 ---
 
 ## 7. Milestone Drafting (1-of-3 Royal Decrees)
 
-* **Starting Unlocks:** Every House begins Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, and **Sapper Crew** unlocked, plus that House's unique building and signature unit. **House Aurelia** also starts owning *Royal Mining Charter* (`decree_iron_prospecting`) and *Guild of Master Smiths* (`decree_master_smiths`).
-* **Draft Trigger:** Whenever any Keep levels up (after its specialization is chosen), whenever `house.lifetimeCoinEarned` crosses a milestone (`25, 60, 95, 130…`, `+35` each), or when exploring a Decree-granting Relic Ruin, a **1-of-3 Royal Decree Draft** modal opens.
-* **Draft Category Guarantee:** Each 3-card hand offers **1 Infrastructure Blueprint**, **1 Military Charter**, and **1 Kingdom Doctrine** drawn from unowned decrees. When a category is exhausted, its slot fills from remaining categories in priority order **Doctrine → Infrastructure → Military** (no duplicates).
+* **Starting Unlocks:** Every House begins Turn 1 with **Farm**, **Lumber Mill**, **Militia**, **Spearman**, and **Sapper Crew** unlocked, plus that House's unique building and signature unit. **House Aurelia** also starts owning *Royal Mining Charter* (`decree_iron_prospecting`) and *Guild of Master Smiths* (`decree_master_smiths`) (these starting decrees do not grant free Chronicle score).
+* **Draft Trigger:** Whenever any Keep levels up to Tier 2 (after its specialization is chosen), on a Tier-2 Keep's **first** repeat Food milestone (subsequent repeats award **Royal Surplus**: `+10 Coin` and `+2 Royal Favor` with no draft), whenever `house.lifetimeCoinEarned` crosses an escalating milestone (`25, 65, 125, 205, 305…`, incrementing by `20 × (coinMilestonesClaimed + 1)`), or when exploring a Decree-granting Relic Ruin, a **1-of-3 Royal Decree Draft** modal opens.
+* **Draft Category Guarantee & Faction Exclusions:** The pool contains **25 Royal Decrees**. Redundant military charters are excluded per House (`decree_fletchers_guild` excluded for Vane; `decree_chivalric_order` excluded for Aurelia; `24` eligible for Vane & Aurelia, `25` for others). Each 3-card hand offers **1 Infrastructure Blueprint**, **1 Military Charter**, and **1 Kingdom Doctrine** drawn from unowned eligible decrees. When a category is exhausted, its slot fills from remaining categories in priority order **Doctrine → Infrastructure → Military** (no duplicates).
 * **Draft Pool Categories:**
   * **Infrastructure Blueprints:** *Iron Mine, Smithy, Palisade Wall, Marketplace, Granary, Watchtower.*
-  * **Military Charters:** *Archers, Crossbowmen, Heavy Knights, Siege Rams.* *(Sapper Crews are unlocked Turn 1; healing is covered by the Field Chirurgeons doctrine.)*
+  * **Military Charters:** *Archers, Crossbowmen, Men-at-Arms, Heavy Knights, Siege Rams.* *(Sapper Crews are unlocked Turn 1; healing is covered by the Field Chirurgeons doctrine.)*
   * **Kingdom Doctrines (Passives):** *Three-Field Rotation (+1 Food per Farm/Forester's Lodge), Forced March (+1 Infantry/Spearman Movement), Veteran Drill (+15% Unit Attack), Quartermaster Ledger (-1 Coin Upkeep), Field Chirurgeons (6 HP heal when stationary), etc.*
 
 ### 7b. The Crown: Royal Favor, Writs & Regent's Mandate
-The Regent Council publishes public **Crown Writs** every 6 turns starting Turn 3. Completing Writs earns **Royal Favor**, which Houses can spend on **Crown Audience** actions (Royal Reroll, Petition a Charter, Crown Grant) or accumulate to claim the **Regent's Mandate** (`≥ 30` Favor and `≥ 4` Keeps held for 3 turns in Dominion mode). See `docs/CROWN_SEASONS_EVENTS.md`.
+The Regent Council publishes public **Crown Writs** every 6 turns starting Turn 3 (in Chronicle mode, publication on Turn 33 is suppressed so Turn 27 Writs remain active through the Turn 33 finale). Completing Writs earns **Royal Favor**, which Houses can spend on **Crown Audience** actions (Royal Reroll, Petition a Charter, Crown Grant) or accumulate to claim the **Regent's Mandate** (`≥ 30` Favor and `≥ 4` Keeps held for 3 turns in Dominion mode). See `docs/CROWN_SEASONS_EVENTS.md`.
 
 ---
 
 ## 8. Tactical Combat & Frontier Map Ecosystem
 
-### Strict Keep Army Caps & Counter-Triangle
-* **Army Caps:** A Tier-1 Keep supports **3 active units**; a Tier-2 Stronghold supports **4 active units** (`5` with Garrison Seat). Keeps at capacity cannot train new units until an existing unit is lost or disbanded.
-* **Deterministic Counter-Triangle:** Combat resolves deterministically using Attack vs. Defense scaled by current unit HP percentage, additive modifier buckets, One-Shot Protection, and a multiplicative 40% advantage triangle:
-  * **Spearmen** deal **+40% damage** to **Cavalry**.
+### Strict Keep Army Caps, Training & Counter-Triangle
+* **Army Caps & Re-homing:** A Tier-1 Keep supports **3 active units**; a Tier-2 Stronghold supports **4 active units** (`5` with Garrison Seat). Keeps at capacity cannot train new units until an existing unit is lost, disbanded, or re-homed. Any friendly unit (except `free_company_spearman`) standing on a friendly Keep with an open Army Cap slot may manually **Re-home Here** for `0` resources and `0` actions (clearing Supply-Severed status if orphaned).
+* **Training & Summoning Sickness:** Training at a Keep requires the Keep center tile to be unoccupied. Every newly trained unit (and hired `free_company_spearman`) spawns with **summoning sickness** (`hasMoved = true`, `hasAttacked = true`) and does not trigger end-of-turn healing on its spawn turn.
+* **Deterministic Counter-Triangle & Brace:** Combat resolves deterministically using Attack vs. Defense scaled by current unit HP percentage, additive modifier buckets, One-Shot Protection (Steadfast — full-HP units cannot drop below `1 HP` unless struck by a **melee** attacker with counter advantage; ranged units never one-shot full-HP targets), and a multiplicative 40% advantage triangle:
+  * **Spearmen** deal **+40% damage** to **Cavalry** and **Brace** when retaliating against melee Cavalry attacks (calculating retaliation using their **pre-hit HP ratio** if they survive).
   * **Cavalry** deal **+40% damage** to **Archers & Siege**.
-  * **Archers & Infantry** deal **+40% damage** to **Spearmen**.
-* **Guaranteed Siege Access:** Every House can train **Sapper Crews** from Turn 1 (`10` Mat, `6` structure Attack, 2-hit raze on Palisades/Watchtowers), while **Siege Rams** (`Siege Engineers` decree) remain the stronger 1-hit siege option.
+  * **Archers & Infantry** (including **Men-at-Arms**) deal **+40% damage** to **Spearmen**.
+* **Keep HP & Guaranteed Siege Access:** Standard Keeps have `24 Max HP` (`34` for Garrison Seat; restored to `Math.floor(maxKeepHp / 2)` on capture). Every House can train **Sapper Crews** from Turn 1 (`10` Mat, `6` structure Attack, 2-hit raze on Palisades/Watchtowers), while **Siege Rams** (`Siege Engineers` decree, `8` structure Attack) remain the stronger 1-hit raze and 2-hit standard Keep siege option.
 * **Terrain Modifiers:**
   * **Hills:** `+0.20 DefBonus` and `+1` attack range for ranged units.
   * **Forests:** `+0.25 DefBonus` and blocks Cavalry movement/charges (except `dusk_outrider`).
 
 ### Neutral Map Features (22x22 Frontier)
-1. **Independent Frontier Villages:** Neutral settlements scattered across the map. Players can capture them militarily or **annex them peacefully** by spending `15 Coin` + `12 Food` (from the annexing unit's `homeKeepId` growth bar) to convert them immediately into a new Tier-1 Keep with intact buildings.
-2. **Ancient Watchtowers:** Neutral stone towers on elevated tiles. Moving a unit onto one permanently clears a **7x7 fog radius** around it.
+1. **Independent Frontier Villages:** Neutral settlements defended by a neutral garrison (`12 HP`, `3 Atk`, `4 Def`, `+0.20 DefBonus`, regenerating `+3 HP/round`). Players can **annex them peacefully** (`15 Coin` + `12 Food` from the closest friendly Keep with enough Food -> converts into a Tier-1 Keep at full `24/24 HP` and grants `+1 Royal Favor`) or **seize them by force** (reducing `villageHp` to `0` -> converts into a damaged Tier-1 Keep at `8/24 HP` and costs `-2 Royal Favor`).
+2. **Ancient Watchtowers:** Neutral stone towers on elevated tiles. Each House's first visit permanently clears a **7x7 fog radius** around it (the first House overall earns `+10` Chronicle Landmark score). Occupying an Ancient Watchtower grants **`+0.30 DefBonus`** (non-stacking) plus **`+2 Coin/turn`** every turn and **`+1 Royal Favor` on even turns**.
 3. **Relic Ruins:** Weathered ruins that grant an immediate burst of Coin, Materials, or a free **Royal Decree Draft** when explored.
 4. **Outlaw Camps:** Hostile bandit encampments guarding high-yield Iron Ridges or Relic Ruins. Clearing a camp awards a lump-sum Coin bounty and opens surrounding high-value tiles for settlement.
 
@@ -143,9 +144,10 @@ The Regent Council publishes public **Crown Writs** every 6 turns starting Turn 
 * **Terrain Mix (±3%):** Plains 40%, Forest 22%, Hills 14%, River 10%, Mountain 8%, remainder Plains. Rivers are 1–2 connected river paths running edge to edge.
 * **Capitals:** Placed at least `7` tiles apart (Chebyshev) and at least `3` tiles from the map edge.
 * **Faction Terrain Guarantees (within each capital's 5x5 area):** Vane `≥ 3` Forest; Ironhelm `≥ 1` Mountain and `≥ 1` Iron Deposit; Aurelia `≥ 1` River inside the 3x3; Corvus `≥ 1` Outlaw Camp within `6` tiles of the capital; Solis `≥ 2` Hills; **Every House** `≥ 1` river-adjacent Plains tile and `≥ 1` Plains tile next to `2` Forests inside the 3x3.
+* **Capital Smithy Geometry Guarantee:** Inside every Capital's `5x5` territory, the guaranteed Iron Deposit tile must be adjacent (8-directional Chebyshev) to at least one `plains` or `hills` tile (valid `smithy` slot, excluding the Capital tile) that is itself adjacent to at least one *other* `plains` or `hills` tile (valid `lumber_mill` slot, excluding the Capital tile), with all three tiles inside that Capital's `5x5` area.
 * **Frontier Villages:** `2 × houseCount + 2` in total. Each House must have **at least 2 villages** closer to its capital than to any other capital. Villages sit at least `4` tiles from any capital and at least `3` tiles from each other.
 * **Landmarks & Iron Deposits:** `4` Ancient Watchtowers (on Hills), `8` Relic Ruins (drawn from 12 without replacement), `houseCount + 1` Outlaw Camps. `1` Iron Deposit inside each capital's 5x5, plus `4–6` elsewhere (at least half next to an Outlaw Camp).
-* **Fairness Retry:** If any guarantee fails, regenerate with `seed + attempt` for up to `50` attempts. After that, relax guarantees in order: terrain mix tolerance, then Corvus camp distance. Never relax the village guarantee.
+* **Fairness Retry:** If any guarantee fails, regenerate with `seed + attempt` for up to `50` attempts. After that, relax guarantees in order: (1) terrain mix tolerance, (2) Corvus camp distance, (3) non-Aurelia Smithy geometry. **Never** relax the Frontier Village guarantee or Aurelia's Smithy geometry.
 
 ---
 

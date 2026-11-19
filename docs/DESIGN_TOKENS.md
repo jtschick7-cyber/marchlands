@@ -1,4 +1,4 @@
-Spec Version: 0.2
+Spec Version: 0.3
 
 # Artifact #4: Marchlands Visual Design Token & Heraldry Sheet
 
@@ -91,6 +91,7 @@ Every tile renders on a standardized `48x48` coordinate grid (`viewBox="0 0 48 4
 
 #### Unit Class & Signature Silhouettes (Rendered inside Unit Token)
 * `militia` (`infantry`): Simple round buckler shield + short hand-axe silhouette.
+* `men_at_arms` (`infantry`): Heater shield crossed diagonally by a two-handed broadsword.
 * `spearman` (`spearman`): Diagonal long spear shaft with triangular spearhead + vertical kite shield.
 * `archer` (`ranged`): Curved hunting bow arc with nocked arrow pointing up-right.
 * `crossbowman` (`ranged`): Horizontal T-shaped heavy arbalest stock and prod.
