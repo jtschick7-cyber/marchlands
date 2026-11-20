@@ -43,6 +43,8 @@ describe('Step 8: Two-Layer Fog-Honest AI Architecture', () => {
           spawnedOnTurn: 0,
           isMutinied: false,
           damagedSinceLastTurn: false,
+          xp: 0,
+          isFortified: false,
         },
       },
     };
@@ -112,6 +114,8 @@ describe('Step 8: Two-Layer Fog-Honest AI Architecture', () => {
           spawnedOnTurn: 1,
           isMutinied: false,
           damagedSinceLastTurn: false,
+          xp: 0,
+          isFortified: false,
         },
       },
     };

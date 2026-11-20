@@ -25,6 +25,7 @@ import {
   COUNTER_ADVANTAGE_MULT,
   COUNTER_MATCHUPS,
   FLANKING_ATK_BONUS,
+  FORTIFY_DEF_BONUS,
   FORTIFICATION_DEF_BONUS,
   FORTIFICATION_DEFENSE,
   FORTIFICATION_MASONRY_DEF_BONUS,
@@ -50,6 +51,12 @@ import {
   SUPPLY_SEVERED_DEF_PENALTY,
   TERRAINS,
   UNITS,
+  VETERANCY_HP_PER_RANK,
+  VETERANCY_RANK1_ATK_BONUS,
+  VETERANCY_RANK1_XP,
+  VETERANCY_RANK2_ATK_BONUS,
+  VETERANCY_RANK2_DEF_BONUS,
+  VETERANCY_RANK2_XP,
   VETERAN_DRILL_ATK_BONUS,
   VILLAGE_ATTACK,
   VILLAGE_DEF_BONUS,
@@ -57,6 +64,9 @@ import {
   VILLAGE_MAX_HP,
   VILLAGE_SEIZE_FAVOR_PENALTY,
   VILLAGE_SEIZE_KEEP_HP,
+  XP_COMBAT_KILL,
+  XP_COMBAT_SURVIVE,
+  XP_STRUCTURE_CAPTURE,
 } from '../data/index.ts';
 import { chebyshevDist, coordKey, getNeighbors } from './coords.ts';
 import { autoRehomeOrphans, captureKeep, claimKeepTerritory } from './capture.ts';
@@ -80,6 +90,43 @@ export interface CombatPreview {
   readonly attackerDestroyed: boolean;
   readonly oneShotProtectionTriggered: boolean;
   readonly braceTriggered: boolean;
+  readonly isFlanked: boolean;
+  readonly defenderFortified: boolean;
+  readonly defenderCoverPct: number;
+  readonly attackerRank: 0 | 1 | 2;
+  readonly defenderRank: 0 | 1 | 2;
+}
+
+export function getUnitRank(xp: number): 0 | 1 | 2 {
+  if (xp >= VETERANCY_RANK2_XP) return 2;
+  if (xp >= VETERANCY_RANK1_XP) return 1;
+  return 0;
+}
+
+function applyUnitXp(
+  unit: UnitState,
+  xpGain: number,
+): { readonly unit: UnitState; readonly promotedTo: 1 | 2 | null } {
+  const prevRank = getUnitRank(unit.xp ?? 0);
+  const nextXp = (unit.xp ?? 0) + xpGain;
+  const nextRank = getUnitRank(nextXp);
+  const rankDelta = nextRank - prevRank;
+  if (rankDelta > 0) {
+    const hpBoost = rankDelta * VETERANCY_HP_PER_RANK;
+    return {
+      unit: {
+        ...unit,
+        xp: nextXp,
+        maxHp: unit.maxHp + hpBoost,
+        hp: Math.min(unit.maxHp + hpBoost, unit.hp + hpBoost),
+      },
+      promotedTo: nextRank as 1 | 2,
+    };
+  }
+  return {
+    unit: { ...unit, xp: nextXp },
+    promotedTo: null,
+  };
 }
 
 export function clampBonusSum(sum: number): number {
@@ -269,6 +316,13 @@ export function getUnitAtkBonusSum(
     sum += MUTINY_ATK_PENALTY;
   }
 
+  const rank = getUnitRank(attacker.xp ?? 0);
+  if (rank === 1) {
+    sum += VETERANCY_RANK1_ATK_BONUS;
+  } else if (rank === 2) {
+    sum += VETERANCY_RANK2_ATK_BONUS;
+  }
+
   return clampBonusSum(sum);
 }
 
@@ -324,6 +378,14 @@ export function getUnitDefBonusSum(state: GameState, defender: UnitState): numbe
     sum += SUPPLY_SEVERED_DEF_PENALTY;
   }
 
+  if (defender.isFortified) {
+    sum += FORTIFY_DEF_BONUS;
+  }
+
+  if (getUnitRank(defender.xp ?? 0) === 2) {
+    sum += VETERANCY_RANK2_DEF_BONUS;
+  }
+
   return clampBonusSum(sum);
 }
 
@@ -363,6 +425,8 @@ export function previewUnitCombat(
 
   const flanked = isTargetFlanked(state, attacker, defender);
   const atkBonus = getUnitAtkBonusSum(state, attacker, flanked);
+  const defTile = state.tiles[defender.tileKey]!;
+  const defCover = getTileTerrainOrFortDefBonus(state, defTile, defender.houseId);
   const defBonus = getUnitDefBonusSum(state, defender);
 
   const effAtk = atkDef.attack * (attacker.hp / attacker.maxHp) * (1 + atkBonus) * atkCounter;
@@ -427,6 +491,11 @@ export function previewUnitCombat(
     attackerDestroyed: attackerHpAfter <= 0,
     oneShotProtectionTriggered: ospTriggered,
     braceTriggered,
+    isFlanked: flanked,
+    defenderFortified: defender.isFortified,
+    defenderCoverPct: Math.round(defCover * 100),
+    attackerRank: getUnitRank(attacker.xp ?? 0),
+    defenderRank: getUnitRank(defender.xp ?? 0),
   };
 }
 
@@ -434,6 +503,7 @@ function consumeUnitAttack(unit: UnitState): UnitState {
   return {
     ...unit,
     hasAttacked: true,
+    isFortified: false,
     remainingMovement: unit.typeId === 'dusk_outrider' ? unit.remainingMovement : 0,
   };
 }
@@ -451,6 +521,9 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
 
   const nextUnits: Record<string, UnitState> = { ...state.units };
   const nextHouses = { ...state.houses };
+
+  const promotions: Array<{ houseId: HouseId; tileKey: CoordKey; unitName: string; rank: 1 | 2 }> =
+    [];
 
   if (preview.defenderDestroyed) {
     delete nextUnits[defenderId];
@@ -475,11 +548,32 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
     };
     nextHouses[attacker.houseId] = atkHouse;
   } else {
-    nextUnits[defenderId] = {
-      ...defender,
-      hp: preview.defenderHpAfter,
-      damagedSinceLastTurn: true,
-    };
+    // Defender only gains XP when it slays the attacker on retaliation (never mid-hit heal on poke)
+    if (preview.attackerDestroyed) {
+      const defProm = applyUnitXp(
+        {
+          ...defender,
+          hp: preview.defenderHpAfter,
+          damagedSinceLastTurn: true,
+        },
+        XP_COMBAT_KILL,
+      );
+      nextUnits[defenderId] = defProm.unit;
+      if (defProm.promotedTo) {
+        promotions.push({
+          houseId: defender.houseId,
+          tileKey: defender.tileKey,
+          unitName: UNITS[defender.typeId].name,
+          rank: defProm.promotedTo,
+        });
+      }
+    } else {
+      nextUnits[defenderId] = {
+        ...defender,
+        hp: preview.defenderHpAfter,
+        damagedSinceLastTurn: true,
+      };
+    }
   }
 
   if (preview.attackerDestroyed) {
@@ -506,12 +600,25 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
     nextHouses[defender.houseId] = defHouse;
   } else {
     const consumed = consumeUnitAttack(attacker);
-    nextUnits[attackerId] = {
-      ...consumed,
-      hp: preview.attackerHpAfter,
-      damagedSinceLastTurn:
-        preview.retaliationDamage > 0 ? true : consumed.damagedSinceLastTurn,
-    };
+    const atkXp = preview.defenderDestroyed ? XP_COMBAT_KILL : XP_COMBAT_SURVIVE;
+    const atkProm = applyUnitXp(
+      {
+        ...consumed,
+        hp: preview.attackerHpAfter,
+        damagedSinceLastTurn:
+          preview.retaliationDamage > 0 ? true : consumed.damagedSinceLastTurn,
+      },
+      atkXp,
+    );
+    nextUnits[attackerId] = atkProm.unit;
+    if (atkProm.promotedTo) {
+      promotions.push({
+        houseId: attacker.houseId,
+        tileKey: attacker.tileKey,
+        unitName: UNITS[attacker.typeId].name,
+        rank: atkProm.promotedTo,
+      });
+    }
   }
 
   let nextState: GameState = {
@@ -528,6 +635,18 @@ export function attackUnit(state: GameState, attackerId: string, defenderId: str
     summary: `${attacker.typeId} (${attacker.houseId}) struck ${defender.typeId} (${defender.houseId}) for ${preview.attackerDamage} dmg${preview.retaliationDamage > 0 ? ` (took ${preview.retaliationDamage} retaliation)` : ''}.`,
     isPublic: false,
   });
+
+  for (const prom of promotions) {
+    const label = prom.rank === 2 ? 'Veteran' : 'Seasoned';
+    nextState = appendChronicle(nextState, {
+      type: 'unit_promoted',
+      actorHouseId: prom.houseId,
+      targetHouseId: null,
+      tileKey: prom.tileKey,
+      summary: `${prom.unitName} earned ${label} rank (+2 Max HP & combat mastery).`,
+      isPublic: false,
+    });
+  }
 
   if (preview.defenderDestroyed) {
     nextState = autoRehomeOrphans(nextState, defender.houseId);
@@ -597,11 +716,15 @@ export function attackKeep(state: GameState, attackerId: string, keepId: string)
     delete nextUnits[attackerId];
   } else {
     const consumed = consumeUnitAttack(attacker);
-    nextUnits[attackerId] = {
-      ...consumed,
-      hp: attackerHpAfter,
-      damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
-    };
+    const keepXp = keepHpAfter <= 0 ? XP_STRUCTURE_CAPTURE : XP_COMBAT_SURVIVE;
+    nextUnits[attackerId] = applyUnitXp(
+      {
+        ...consumed,
+        hp: attackerHpAfter,
+        damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
+      },
+      keepXp,
+    ).unit;
   }
 
   let nextState: GameState = {
@@ -702,11 +825,15 @@ export function attackVillage(
     delete nextUnits[attackerId];
   } else {
     const consumed = consumeUnitAttack(attacker);
-    nextUnits[attackerId] = {
-      ...consumed,
-      hp: attackerHpAfter,
-      damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
-    };
+    const villageXp = villageHpAfter <= 0 ? XP_STRUCTURE_CAPTURE : XP_COMBAT_SURVIVE;
+    nextUnits[attackerId] = applyUnitXp(
+      {
+        ...consumed,
+        hp: attackerHpAfter,
+        damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
+      },
+      villageXp,
+    ).unit;
   }
 
   if (villageHpAfter > 0) {
@@ -870,11 +997,15 @@ export function attackOutlawCamp(
     delete nextUnits[attackerId];
   } else {
     const consumed = consumeUnitAttack(attacker);
-    nextUnits[attackerId] = {
-      ...consumed,
-      hp: attackerHpAfter,
-      damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
-    };
+    const campXp = banditHpAfter <= 0 ? XP_COMBAT_KILL : XP_COMBAT_SURVIVE;
+    nextUnits[attackerId] = applyUnitXp(
+      {
+        ...consumed,
+        hp: attackerHpAfter,
+        damagedSinceLastTurn: attackerHpAfter < attacker.hp ? true : consumed.damagedSinceLastTurn,
+      },
+      campXp,
+    ).unit;
   }
 
   if (banditHpAfter > 0) {

@@ -115,7 +115,25 @@ export function validateGameStatePayload(
     return { ok: false, error: 'activeHouseId does not exist in houses map.' };
   }
 
-  return { ok: true, state: raw as unknown as GameState };
+  // Normalize unit fields for forward compatibility with earlier v0.3 autosaves
+  const normalizedUnits: Record<string, unknown> = {};
+  for (const [uid, rawUnit] of Object.entries(raw.units)) {
+    if (isPlainRecord(rawUnit)) {
+      normalizedUnits[uid] = {
+        ...rawUnit,
+        xp: typeof rawUnit.xp === 'number' ? rawUnit.xp : 0,
+        isFortified: typeof rawUnit.isFortified === 'boolean' ? rawUnit.isFortified : false,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    state: {
+      ...(raw as unknown as GameState),
+      units: normalizedUnits as GameState['units'],
+    },
+  };
 }
 
 export function buildSaveMetadata(slotId: string, state: GameState): SaveMetadata {

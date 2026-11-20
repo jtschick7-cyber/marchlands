@@ -421,6 +421,7 @@ export function moveUnit(state: GameState, unitId: string, destKey: CoordKey): G
     y: destTile.y,
     remainingMovement: remAfter,
     hasMoved: true,
+    isFortified: false,
   };
 
   let nextState: GameState = {

@@ -143,6 +143,23 @@ export const KEEP_TILE_EXTRA_HEAL = 3;
 export const PILLAGE_MAT_RATIO = 0.5;
 export const PILLAGE_BASE_COIN = 3;
 
+// Tactical Stances, Veterancy & Keep Management Constants
+export const FORTIFY_DEF_BONUS = 0.15;
+export const FORTIFY_EXTRA_HEAL = 2;
+export const VETERANCY_RANK1_XP = 2;
+export const VETERANCY_RANK2_XP = 5;
+export const VETERANCY_RANK1_ATK_BONUS = 0.10;
+export const VETERANCY_RANK2_ATK_BONUS = 0.20;
+export const VETERANCY_RANK2_DEF_BONUS = 0.05;
+export const VETERANCY_HP_PER_RANK = 2;
+export const XP_COMBAT_SURVIVE = 1;
+export const XP_COMBAT_KILL = 2;
+export const XP_STRUCTURE_CAPTURE = 2;
+export const DEMOLISH_REFUND_RATIO = 0.25;
+export const DISBAND_KEEP_REFUND_RATIO = 0.25;
+export const KEEP_REPAIR_MAT_COST = 6;
+export const KEEP_REPAIR_HP_AMOUNT = 8;
+
 // Adjacency Yield Constants
 export const FARM_RIVER_BONUS_FOOD = 2;
 export const LUMBER_MILL_FOREST_THRESHOLD = 2;

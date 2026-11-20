@@ -3,7 +3,9 @@
  *
  * Orchestrates:
  * - Title / New Campaign Setup & Resume Autosave
- * - Two-tap MapBoard + TopHud + BottomDrawer + Modals
+ * - Two-tap Cartographic MapBoard + TopHud + BottomDrawer + Modals & Realm Ledger
+ * - Separate Next Unit cycler & always-accessible End Turn control
+ * - Fortify stance, Unit Veterancy, Field Repair, Demolish, Disband & Relic Ruin popups
  * - Ephemeral 20-snapshot Undo stack with Ruling 6.4 commit-point clearing
  * - Atomic IndexedDB autosave after every player action, modal, undo, and AI turn
  * - Web Worker AI turn loop with 8,000ms watchdog
@@ -22,13 +24,14 @@ import type {
   SaveMetadata,
   UnitId,
 } from './types/game.ts';
-import { HOUSE_IDS, UNDO_STACK_MAX } from './data/index.ts';
+import { HOUSE_IDS, RELIC_RUINS, UNDO_STACK_MAX } from './data/index.ts';
 import { rehomeUnitManually } from './engine/capture.ts';
 import {
   attackKeep,
   attackOutlawCamp,
   attackUnit,
   attackVillage,
+  getUnitRank,
   pillageTile,
   razeFortification,
 } from './engine/combat.ts';
@@ -39,7 +42,15 @@ import {
   performRoyalReroll,
 } from './engine/crown.ts';
 import { applyKeepSpecialization, selectDecree } from './engine/draftAndSpec.ts';
-import { annexVillage, buildImprovement, trainUnit } from './engine/economy.ts';
+import {
+  annexVillage,
+  buildImprovement,
+  demolishImprovement,
+  disbandUnit,
+  fortifyUnit,
+  repairKeep,
+  trainUnit,
+} from './engine/economy.ts';
 import { resolveEventChoice } from './engine/events.ts';
 import { getReachableTiles, moveUnit } from './engine/movement.ts';
 import {
@@ -50,7 +61,7 @@ import {
   type AttackTargetInfo,
   type BuildPreviewInfo,
 } from './engine/queries.ts';
-import { createInitialGameState, getUnitAt } from './engine/stateHelpers.ts';
+import { createInitialGameState, getKeepAt, getUnitAt } from './engine/stateHelpers.ts';
 import { endHouseTurn, type PlayerActionType } from './engine/turn.ts';
 import {
   exportSaveJson,
@@ -73,7 +84,9 @@ import {
   GameOverModal,
   MenuDrawer,
   PrimerModal,
+  RealmLedgerDrawer,
   RecapModal,
+  RelicDiscoveryModal,
   SpecializationModal,
 } from './components/Modals.tsx';
 import { TitleScreen } from './components/TitleScreen.tsx';
@@ -91,6 +104,7 @@ export default function App() {
   });
 
   const toastTimerRef = useRef<number | null>(null);
+  const popupSeqRef = useRef(1);
   const aiRunningRef = useRef(false);
 
   const showToast = useCallback(
@@ -105,6 +119,20 @@ export default function App() {
     },
     [],
   );
+
+  const spawnMapPopup = useCallback((tileKey: CoordKey, text: string, color: string) => {
+    const id = popupSeqRef.current++;
+    setUi((prev) => ({
+      ...prev,
+      floatingPopups: [...prev.floatingPopups, { id, tileKey, text, color }],
+    }));
+    window.setTimeout(() => {
+      setUi((prev) => ({
+        ...prev,
+        floatingPopups: prev.floatingPopups.filter((p) => p.id !== id),
+      }));
+    }, 1500);
+  }, []);
 
   const refreshSaves = useCallback(async () => {
     const [autoRes, listRes] = await Promise.all([loadAutosave(), listSaveSlots()]);
@@ -159,7 +187,7 @@ export default function App() {
     (
       nextState: GameState,
       actionType: PlayerActionType,
-      opts?: { clearSelection?: boolean; clearBuildMode?: boolean },
+      opts?: { clearSelection?: boolean; clearBuildMode?: boolean; clearSkipped?: boolean },
     ) => {
       if (!gameState || nextState === gameState) return;
       const commitReason = getCommitPointReason(
@@ -175,6 +203,7 @@ export default function App() {
         selectedTileKey: opts?.clearSelection ? null : prev.selectedTileKey,
         buildModeImprovementId: opts?.clearBuildMode ? null : prev.buildModeImprovementId,
         attackPreviewTargetKey: null,
+        skippedUnitIds: opts?.clearSkipped ? [] : prev.skippedUnitIds,
         undoStack: commitReason
           ? []
           : [...prev.undoStack.slice(-(UNDO_STACK_MAX - 1)), gameState],
@@ -216,6 +245,7 @@ export default function App() {
           res.state.phase === 'game_over'
             ? null
             : res.state.activeHouseId,
+        skippedUnitIds: [],
         undoStack: [],
         lastCommitReason: 'A new turn has begun',
       }));
@@ -240,7 +270,9 @@ export default function App() {
     if (
       !gameState ||
       !selectedUnit ||
-      selectedUnit.hasMoved ||
+      selectedUnit.isFortified ||
+      selectedUnit.remainingMovement <= 0 ||
+      (selectedUnit.hasAttacked && selectedUnit.typeId !== 'dusk_outrider') ||
       gameState.activeHouseId !== viewerHouseId ||
       gameState.phase !== 'player_command'
     ) {
@@ -254,6 +286,7 @@ export default function App() {
       !gameState ||
       !selectedUnit ||
       selectedUnit.hasAttacked ||
+      selectedUnit.isFortified ||
       gameState.activeHouseId !== viewerHouseId ||
       gameState.phase !== 'player_command'
     ) {
@@ -384,6 +417,7 @@ export default function App() {
     if (isPlayerTurn && ui.buildModeImprovementId && buildPreviews.has(tileKey)) {
       const next = buildImprovement(gameState, viewerHouseId, tileKey, ui.buildModeImprovementId);
       dispatchPlayerTransition(next, 'build', { clearBuildMode: true });
+      spawnMapPopup(tileKey, 'BUILT!', '#4ADE80');
       return;
     }
 
@@ -399,27 +433,62 @@ export default function App() {
 
     // 3. If own unit is selected and tapping a reachable destination -> move unit
     if (isPlayerTurn && selectedUnit && reachableKeys.has(tileKey)) {
+      const destTile = gameState.tiles[tileKey];
+      const willExploreRuin =
+        destTile?.landmark === 'relic_ruin' &&
+        !destTile.landmarkCleared &&
+        destTile.relicRuinId !== null
+          ? RELIC_RUINS[destTile.relicRuinId]
+          : null;
+      const willClaimWatchtower =
+        destTile?.landmark === 'ancient_watchtower' &&
+        !destTile.revealedByHouseIds.includes(viewerHouseId);
+
       const next = moveUnit(gameState, selectedUnit.id, tileKey);
       dispatchPlayerTransition(next, 'move');
       setUi((prev) => ({
         ...prev,
         selectedTileKey: next.units[selectedUnit.id]?.tileKey ?? tileKey,
+        keepInspectMode: 'unit',
+        skippedUnitIds: prev.skippedUnitIds.filter((id) => id !== selectedUnit.id),
+        discoveredRuin: willExploreRuin
+          ? {
+              title: willExploreRuin.title,
+              vignette: willExploreRuin.vignette,
+              rewardSummary: willExploreRuin.rewardSummary,
+            }
+          : prev.discoveredRuin,
       }));
+      if (willExploreRuin) {
+        spawnMapPopup(tileKey, 'RELIC!', '#38BDF8');
+      } else if (willClaimWatchtower) {
+        spawnMapPopup(tileKey, '7x7 REVEAL', '#FACC15');
+        showToast('Ancient Watchtower scouted! 7x7 territory revealed.');
+      }
       return;
     }
 
-    // 4. Otherwise select tapped tile
+    // 4. Otherwise select tapped tile (and clear skip if player explicitly taps a unit)
+    const tappedUnit = getUnitAt(gameState, tileKey);
+    const tappedKeep = getKeepAt(gameState, tileKey);
     setUi((prev) => ({
       ...prev,
       selectedTileKey: tileKey,
       buildModeImprovementId: null,
       attackPreviewTargetKey: null,
       hudPopover: null,
+      keepInspectMode:
+        tappedUnit && tappedUnit.houseId === viewerHouseId
+          ? 'unit'
+          : tappedKeep && tappedKeep.ownerHouseId === viewerHouseId
+            ? 'keep'
+            : prev.keepInspectMode,
     }));
   };
 
   const handleConfirmAttack = (target: AttackTargetInfo) => {
     if (!gameState || !selectedUnit) return;
+    const prevRank = getUnitRank(selectedUnit.xp ?? 0);
     let next: GameState = gameState;
     let actionType: PlayerActionType = 'attack';
 
@@ -440,7 +509,26 @@ export default function App() {
       actionType = 'raze';
     }
 
+    if (target.preview) {
+      spawnMapPopup(target.tileKey, `−${target.preview.attackerDamage} HP`, '#F87171');
+    } else {
+      spawnMapPopup(target.tileKey, 'SIEGE!', '#FB923C');
+    }
+
+    const survivingAttacker = next.units[selectedUnit.id];
+    if (survivingAttacker) {
+      const nextRank = getUnitRank(survivingAttacker.xp ?? 0);
+      if (nextRank > prevRank) {
+        const label = nextRank === 2 ? 'VETERAN ★' : 'SEASONED!';
+        spawnMapPopup(survivingAttacker.tileKey, label, '#FACC15');
+        showToast(`${label} Your unit earned battle promotion (+2 Max HP & combat mastery)!`);
+      }
+    }
+
     dispatchPlayerTransition(next, actionType);
+    if (survivingAttacker) {
+      setUi((prev) => ({ ...prev, selectedTileKey: survivingAttacker.tileKey }));
+    }
   };
 
   const handleUndo = () => {
@@ -457,35 +545,103 @@ export default function App() {
     showToast('Action reverted.');
   };
 
-  const handleNextUnitOrEndTurn = () => {
+  const handleNextUnit = () => {
     if (!gameState || gameState.phase !== 'player_command') return;
-    const nextIdle = getNextIdleUnit(gameState, viewerHouseId, selectedUnit?.id ?? null);
-    if (nextIdle) {
-      setUi((prev) => ({
-        ...prev,
-        selectedTileKey: nextIdle.tileKey,
-        buildModeImprovementId: null,
-        attackPreviewTargetKey: null,
-      }));
-      panToTile(nextIdle.tileKey);
+    const nextIdle = getNextIdleUnit(
+      gameState,
+      viewerHouseId,
+      selectedUnit?.id ?? null,
+      ui.skippedUnitIds,
+    );
+    if (!nextIdle) {
+      showToast('All troops have completed orders or are holding.');
       return;
     }
+    setUi((prev) => ({
+      ...prev,
+      selectedTileKey: nextIdle.tileKey,
+      keepInspectMode: 'unit',
+      buildModeImprovementId: null,
+      attackPreviewTargetKey: null,
+    }));
+    panToTile(nextIdle.tileKey);
+  };
 
+  const handleEndTurn = () => {
+    if (!gameState || gameState.phase !== 'player_command') return;
     const next = endHouseTurn(gameState);
     setUi((prev) => ({
       ...prev,
       recapSinceTurn: gameState.turnNumber,
+      skippedUnitIds: [],
     }));
     dispatchPlayerTransition(next, 'end_turn', {
       clearSelection: true,
       clearBuildMode: true,
+      clearSkipped: true,
     });
+  };
+
+  const handleFortifyUnit = (unitId: string) => {
+    if (!gameState) return;
+    const u = gameState.units[unitId];
+    if (!u) return;
+    const next = fortifyUnit(gameState, unitId);
+    dispatchPlayerTransition(next, 'fortify');
+    spawnMapPopup(u.tileKey, 'FORTIFIED', '#34D399');
+    showToast('Unit entrenched (+15% DEF, +2 extra heal if stationary).');
+  };
+
+  const handleHoldUnit = (unitId: string) => {
+    if (!gameState) return;
+    const nextSkipped = ui.skippedUnitIds.includes(unitId)
+      ? ui.skippedUnitIds
+      : [...ui.skippedUnitIds, unitId];
+    const nextIdle = getNextIdleUnit(gameState, viewerHouseId, unitId, nextSkipped);
+    setUi((prev) => ({
+      ...prev,
+      skippedUnitIds: nextSkipped,
+      selectedTileKey: nextIdle ? nextIdle.tileKey : prev.selectedTileKey,
+      keepInspectMode: 'unit',
+    }));
+    if (nextIdle) {
+      panToTile(nextIdle.tileKey);
+    }
+    showToast('Unit holding position.');
+  };
+
+  const handleDisbandUnit = (unitId: string) => {
+    if (!gameState) return;
+    const u = gameState.units[unitId];
+    if (!u) return;
+    const next = disbandUnit(gameState, viewerHouseId, unitId);
+    dispatchPlayerTransition(next, 'disband', { clearSelection: false });
+    spawnMapPopup(u.tileKey, 'DISBANDED', '#F87171');
+    showToast('Unit disbanded; Army Cap slot freed.');
+  };
+
+  const handleRepairKeep = (keepId: string) => {
+    if (!gameState) return;
+    const k = gameState.keeps[keepId];
+    if (!k) return;
+    const next = repairKeep(gameState, viewerHouseId, keepId);
+    dispatchPlayerTransition(next, 'repair_keep');
+    spawnMapPopup(k.tileKey, '+8 HP', '#4ADE80');
+    showToast(`${k.name} fortifications repaired.`);
+  };
+
+  const handleDemolishImprovement = (tileKey: CoordKey) => {
+    if (!gameState) return;
+    const next = demolishImprovement(gameState, viewerHouseId, tileKey);
+    dispatchPlayerTransition(next, 'demolish');
+    spawnMapPopup(tileKey, 'CLEARED', '#F59E0B');
+    showToast('Improvement cleared and Materials salvaged.');
   };
 
   // Render Title Screen when no campaign is active
   if (!gameState) {
     return (
-      <div className="h-full w-full overflow-x-hidden bg-[#0F172A]">
+      <div className="h-full w-full overflow-x-hidden bg-[#0B1120]">
         <TitleScreen
           autosave={autosave}
           onResumeAutosave={handleResumeAutosave}
@@ -513,13 +669,14 @@ export default function App() {
     : null;
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0F172A]">
+    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0B1120]">
       <TopHud
         state={gameState}
         viewerHouseId={viewerHouseId}
         activePopover={ui.hudPopover}
         aiThinkingHouseId={ui.aiThinkingHouseId}
         onTogglePopover={(key) => setUi((prev) => ({ ...prev, hudPopover: key }))}
+        onOpenRealm={() => setUi((prev) => ({ ...prev, showRealmDrawer: true, hudPopover: null }))}
         onOpenCrown={() => setUi((prev) => ({ ...prev, showCrownDrawer: true, hudPopover: null }))}
         onOpenMenu={() => {
           void refreshSaves();
@@ -534,8 +691,13 @@ export default function App() {
         reachableKeys={reachableKeys}
         attackableKeys={attackableKeys}
         buildPreviews={buildPreviews}
+        showYieldOverlay={ui.showYieldOverlay}
+        floatingPopups={ui.floatingPopups}
         focusTileKey={focusTile.key}
         focusNonce={focusTile.nonce}
+        onToggleYieldOverlay={() =>
+          setUi((prev) => ({ ...prev, showYieldOverlay: !prev.showYieldOverlay }))
+        }
         onTileTap={handleTileTap}
       />
 
@@ -545,23 +707,35 @@ export default function App() {
         selectedTileKey={ui.selectedTileKey}
         buildModeImprovementId={ui.buildModeImprovementId}
         attackPreviewTarget={activeAttackPreview}
+        skippedUnitIds={ui.skippedUnitIds}
+        keepInspectMode={ui.keepInspectMode}
         undoCount={ui.undoStack.length}
         lastCommitReason={ui.lastCommitReason}
         isAiTurn={isAiTurn}
+        onSetKeepInspectMode={(mode) => setUi((prev) => ({ ...prev, keepInspectMode: mode }))}
         onUndo={handleUndo}
         onOpenRecap={() => setUi((prev) => ({ ...prev, showRecapModal: true }))}
-        onNextUnitOrEndTurn={handleNextUnitOrEndTurn}
+        onNextUnit={handleNextUnit}
+        onEndTurn={handleEndTurn}
         onConfirmAttack={handleConfirmAttack}
         onCancelAttackPreview={() => setUi((prev) => ({ ...prev, attackPreviewTargetKey: null }))}
+        onFortifyUnit={handleFortifyUnit}
+        onHoldUnit={handleHoldUnit}
+        onDisbandUnit={handleDisbandUnit}
         onPillage={(unitId) => {
+          const u = gameState.units[unitId];
           dispatchPlayerTransition(pillageTile(gameState, unitId), 'pillage');
+          if (u) spawnMapPopup(u.tileKey, 'PILLAGED!', '#FACC15');
         }}
         onRehome={(unitId) => {
           dispatchPlayerTransition(rehomeUnitManually(gameState, unitId), 'rehome');
           showToast('Unit re-homed to this Keep.');
         }}
+        onRepairKeep={handleRepairKeep}
+        onDemolishImprovement={handleDemolishImprovement}
         onAnnexVillage={(tileKey) => {
           dispatchPlayerTransition(annexVillage(gameState, viewerHouseId, tileKey), 'annex');
+          spawnMapPopup(tileKey, 'ANNEXED +1F', '#4ADE80');
           showToast('Frontier Village annexed peacefully (+1 Favor).');
         }}
         onSelectBuildImprovement={(id: ImprovementId | null) =>
@@ -571,9 +745,12 @@ export default function App() {
           dispatchPlayerTransition(buildImprovement(gameState, viewerHouseId, tileKey, id), 'build', {
             clearBuildMode: true,
           });
+          spawnMapPopup(tileKey, 'BUILT!', '#4ADE80');
         }}
         onTrainUnit={(keepId, unitId: UnitId) => {
+          const k = gameState.keeps[keepId];
           dispatchPlayerTransition(trainUnit(gameState, viewerHouseId, keepId, unitId), 'train');
+          if (k) spawnMapPopup(k.tileKey, 'MUSTERED', '#38BDF8');
         }}
       />
 
@@ -628,7 +805,27 @@ export default function App() {
         />
       )}
 
+      {/* Relic Ruin Discovery Lore Card */}
+      {ui.discoveredRuin && (
+        <RelicDiscoveryModal
+          ruin={ui.discoveredRuin}
+          onClose={() => setUi((prev) => ({ ...prev, discoveredRuin: null }))}
+        />
+      )}
+
       {/* On-Demand Drawers & Modals */}
+      {ui.showRealmDrawer && (
+        <RealmLedgerDrawer
+          state={gameState}
+          viewerHouseId={viewerHouseId}
+          onPanToTile={(tk) => {
+            setUi((prev) => ({ ...prev, selectedTileKey: tk }));
+            panToTile(tk);
+          }}
+          onClose={() => setUi((prev) => ({ ...prev, showRealmDrawer: false }))}
+        />
+      )}
+
       {ui.showCrownDrawer && (
         <CrownDrawer
           state={gameState}
@@ -727,7 +924,7 @@ export default function App() {
               ? 'bg-red-950/95 border-red-500 text-red-100'
               : ui.toastTone === 'warn'
                 ? 'bg-amber-950/95 border-amber-500 text-amber-100'
-                : 'bg-slate-900/95 border-slate-600 text-slate-100'
+                : 'bg-slate-900/95 border-amber-500/40 text-slate-100'
           }`}
         >
           {ui.toastMessage}

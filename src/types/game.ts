@@ -196,6 +196,10 @@ export type ChronicleEventType =
   | 'season_change'
   | 'house_eliminated'
   | 'ai_watchdog_timeout'
+  | 'unit_promoted'
+  | 'keep_repaired'
+  | 'improvement_demolished'
+  | 'unit_disbanded'
   | 'victory';
 
 // ============================================================================
@@ -255,6 +259,8 @@ export interface UnitState {
   spawnedOnTurn: number;
   isMutinied: boolean;
   damagedSinceLastTurn: boolean;
+  xp: number;
+  isFortified: boolean;
 }
 
 export interface HouseStats {

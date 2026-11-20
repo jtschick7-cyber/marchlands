@@ -5,14 +5,32 @@
 
 import type { CoordKey, GameState, HouseId, ImprovementId } from '../types/game.ts';
 
+export interface MapFloatingPopup {
+  readonly id: number;
+  readonly tileKey: CoordKey;
+  readonly text: string;
+  readonly color: string;
+}
+
+export interface DiscoveredRuinBanner {
+  readonly title: string;
+  readonly vignette: string;
+  readonly rewardSummary: string;
+}
+
 export interface UiInteractionState {
   readonly selectedTileKey: CoordKey | null;
   readonly buildModeImprovementId: ImprovementId | null;
   readonly attackPreviewTargetKey: CoordKey | null;
+  readonly skippedUnitIds: readonly string[];
+  readonly keepInspectMode: 'unit' | 'keep';
+  readonly showYieldOverlay: boolean;
   readonly showRecapModal: boolean;
   readonly showCrownDrawer: boolean;
+  readonly showRealmDrawer: boolean;
   readonly showPrimerModal: boolean;
   readonly showMenuDrawer: boolean;
+  readonly discoveredRuin: DiscoveredRuinBanner | null;
   readonly hudPopover: 'food' | 'materials' | 'coin' | 'favor' | 'keeps' | 'season' | 'score' | 'turn' | null;
   readonly toastMessage: string | null;
   readonly toastTone: 'info' | 'warn' | 'error';
@@ -21,16 +39,22 @@ export interface UiInteractionState {
   readonly aiThinkingHouseId: HouseId | null;
   readonly recapSinceTurn: number;
   readonly lastPlayedIso: string | null;
+  readonly floatingPopups: readonly MapFloatingPopup[];
 }
 
 export const INITIAL_UI_STATE: UiInteractionState = {
   selectedTileKey: null,
   buildModeImprovementId: null,
   attackPreviewTargetKey: null,
+  skippedUnitIds: [],
+  keepInspectMode: 'unit',
+  showYieldOverlay: true,
   showRecapModal: false,
   showCrownDrawer: false,
+  showRealmDrawer: false,
   showPrimerModal: false,
   showMenuDrawer: false,
+  discoveredRuin: null,
   hudPopover: null,
   toastMessage: null,
   toastTone: 'info',
@@ -39,6 +63,7 @@ export const INITIAL_UI_STATE: UiInteractionState = {
   aiThinkingHouseId: null,
   recapSinceTurn: 1,
   lastPlayedIso: null,
+  floatingPopups: [],
 };
 
 export function formatRelativeTime(iso: string | null): string {

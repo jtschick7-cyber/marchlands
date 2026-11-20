@@ -23,11 +23,16 @@ import {
   canBuildImprovement,
   canTrainUnit,
   computeTileYield,
+  demolishImprovement,
+  disbandUnit,
+  fortifyUnit,
   keepHasSmithyCombo,
   processEndOfTurnHealingAndAttrition,
   processHarvestAndUpkeep,
+  repairKeep,
   trainUnit,
 } from '../economy.ts';
+import { getNextIdleUnit, canUnitAct } from '../queries.ts';
 import { captureKeep, claimKeepTerritory, rehomeUnitManually } from '../capture.ts';
 
 function makeTestUnit(
@@ -56,6 +61,8 @@ function makeTestUnit(
     spawnedOnTurn: 0,
     isMutinied: false,
     damagedSinceLastTurn: false,
+    xp: 0,
+    isFortified: false,
     ...overrides,
   };
 }
@@ -607,5 +614,108 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
     expect(afterMutiny.houses.vane!.resources.coin).toBe(0);
     expect(afterMutiny.units.u_k1!.hp).toBe(UNITS.knight.maxHp - 8);
     expect(afterMutiny.units.u_k1!.isMutinied).toBe(true);
+  });
+
+  it('fixes Next Unit turn-lock: moved units with no enemies in range are not flagged idle', () => {
+    const state = makeFlatPlainsState();
+    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
+    const withUnit: GameState = {
+      ...state,
+      units: {
+        u1: makeTestUnit('u1', 'vane', 'militia', vaneKeep.x, vaneKeep.y, vaneKeep.id),
+      },
+    };
+
+    // Unmoved unit IS actionable
+    expect(canUnitAct(withUnit, withUnit.units.u1!)).toBe(true);
+    expect(getNextIdleUnit(withUnit, 'vane', null)?.id).toBe('u1');
+
+    // Move full 2 tiles into empty plains (remainingMovement === 0, no enemies in range)
+    const destKey = coordKey(vaneKeep.x + 2, vaneKeep.y);
+    const afterMove = moveUnit(withUnit, 'u1', destKey);
+    expect(afterMove.units.u1!.remainingMovement).toBe(0);
+    expect(afterMove.units.u1!.hasAttacked).toBe(false);
+    // Must NOT be considered idle/actionable!
+    expect(canUnitAct(afterMove, afterMove.units.u1!)).toBe(false);
+    expect(getNextIdleUnit(afterMove, 'vane', null)).toBeNull();
+
+    // Skipped units are also excluded cleanly
+    expect(getNextIdleUnit(withUnit, 'vane', null, ['u1'])).toBeNull();
+  });
+
+  it('supports Fortify (+15% DEF & +2 extra heal), Veterancy XP promotions, Demolish, Disband & Keep Repair', () => {
+    const state = makeFlatPlainsState();
+    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
+    const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
+
+    // 1. Fortify grants +15% DEF and +2 extra stationary healing (5 HP total on open plains)
+    const fortBase: GameState = {
+      ...state,
+      units: {
+        u_def: makeTestUnit('u_def', 'vane', 'spearman', 10, 10, vaneKeep.id, { hp: 14 }),
+        u_atk: makeTestUnit('u_atk', 'corvus', 'men_at_arms', 11, 10, corvusKeep.id),
+      },
+    };
+    const prevNoFort = previewUnitCombat(fortBase, 'u_atk', 'u_def')!;
+    const fortified = fortifyUnit(fortBase, 'u_def');
+    expect(fortified.units.u_def!.isFortified).toBe(true);
+    expect(canUnitAct(fortified, fortified.units.u_def!)).toBe(false);
+
+    const prevFort = previewUnitCombat(fortified, 'u_atk', 'u_def')!;
+    expect(prevFort.defenderFortified).toBe(true);
+    expect(prevFort.attackerDamage).toBeLessThanOrEqual(prevNoFort.attackerDamage);
+
+    const healed = processEndOfTurnHealingAndAttrition(fortified, 'vane');
+    expect(healed.units.u_def!.hp).toBe(19); // 14 + 3 standard + 2 fortify extra
+
+    // 2. Veterancy XP promotion on kill (+2 XP -> Rank 1 Seasoned: +2 Max HP)
+    const killState: GameState = {
+      ...state,
+      units: {
+        u_v: makeTestUnit('u_v', 'vane', 'spearman', 10, 10, vaneKeep.id),
+        u_c: makeTestUnit('u_c', 'corvus', 'militia', 11, 10, corvusKeep.id, { hp: 1 }),
+      },
+    };
+    const afterKill = attackUnit(killState, 'u_v', 'u_c');
+    expect(afterKill.units.u_v!.xp).toBe(2);
+    expect(afterKill.units.u_v!.maxHp).toBe(UNITS.spearman.maxHp + 2);
+
+    // 3. Demolish Improvement refunds 25% Mat and clears tile
+    const farmKey = coordKey(vaneKeep.x + 1, vaneKeep.y);
+    const withFarm = buildImprovement(
+      {
+        ...state,
+        houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 20, coin: 10 } } },
+      },
+      'vane',
+      farmKey,
+      'farm',
+    );
+    expect(withFarm.tiles[farmKey]!.improvement).toBe('farm');
+    const afterDemolish = demolishImprovement(withFarm, 'vane', farmKey);
+    expect(afterDemolish.tiles[farmKey]!.improvement).toBeNull();
+    expect(afterDemolish.houses.vane!.resources.materials).toBe(15); // 20 - 6 + floor(6*0.25)=1
+
+    // 4. Disband unit on friendly Keep refunds 25% Mat
+    const withMilitia: GameState = {
+      ...state,
+      houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 10, coin: 10 } } },
+      units: {
+        u_m: makeTestUnit('u_m', 'vane', 'spearman', vaneKeep.x, vaneKeep.y, vaneKeep.id),
+      },
+    };
+    const afterDisband = disbandUnit(withMilitia, 'vane', 'u_m');
+    expect(afterDisband.units.u_m).toBeUndefined();
+    expect(afterDisband.houses.vane!.resources.materials).toBe(12); // 10 + floor(10*0.25)=2
+
+    // 5. Keep Field Repair spends 6 Mat to restore +8 HP
+    const damagedKeep: GameState = {
+      ...state,
+      houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 12, coin: 10 } } },
+      keeps: { ...state.keeps, [vaneKeep.id]: { ...vaneKeep, keepHp: 10 } },
+    };
+    const repaired = repairKeep(damagedKeep, 'vane', vaneKeep.id);
+    expect(repaired.keeps[vaneKeep.id]!.keepHp).toBe(18);
+    expect(repaired.houses.vane!.resources.materials).toBe(6);
   });
 });

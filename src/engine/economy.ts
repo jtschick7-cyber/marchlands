@@ -22,8 +22,11 @@ import {
   BORDER_LEVIES_MAT_DISCOUNT,
   BORDER_LEVIES_MIN_MAT_COST,
   CROWN_ENVOYS_DISCOUNT,
+  DEMOLISH_REFUND_RATIO,
+  DISBAND_KEEP_REFUND_RATIO,
   FARM_RIVER_BONUS_FOOD,
   FIELD_SURGEONS_HEAL_AMOUNT,
+  FORTIFY_EXTRA_HEAL,
   FORTIFICATION_MAX_HP,
   GRANARY_ADJ_BONUS_FOOD,
   HARD_FROST_ATTRITION_DAMAGE,
@@ -31,6 +34,8 @@ import {
   KEEP_BASE_MAX_HP,
   KEEP_BASE_REGEN,
   KEEP_GARRISON_REGEN,
+  KEEP_REPAIR_HP_AMOUNT,
+  KEEP_REPAIR_MAT_COST,
   KEEP_REPEAT_FIRST_COIN,
   KEEP_REPEAT_SURPLUS_COIN,
   KEEP_REPEAT_SURPLUS_FAVOR,
@@ -444,6 +449,8 @@ export function trainUnit(
     spawnedOnTurn: state.turnNumber,
     isMutinied: false,
     damagedSinceLastTurn: false,
+    xp: 0,
+    isFortified: false,
   };
 
   let nextState: GameState = {
@@ -903,14 +910,17 @@ export function processEndOfTurnHealingAndAttrition(
     if (u.houseId !== houseId) continue;
     let hp = u.hp;
 
-    // Stationary healing: neither moved nor attacked, not spawned this turn, not Supply-Severed
+    // Stationary healing: did not move and either didn't attack or fortified in place
     if (
       !u.hasMoved &&
-      !u.hasAttacked &&
+      (!u.hasAttacked || u.isFortified) &&
       u.spawnedOnTurn !== state.turnNumber &&
       u.homeKeepId !== 'orphaned'
     ) {
       let heal = hasChirurgeons ? FIELD_SURGEONS_HEAL_AMOUNT : STANDARD_HEAL_AMOUNT;
+      if (u.isFortified) {
+        heal += FORTIFY_EXTRA_HEAL;
+      }
       const keep = getKeepAt(state, u.tileKey);
       if (keep && keep.ownerHouseId === houseId) {
         heal += KEEP_TILE_EXTRA_HEAL;
@@ -933,4 +943,216 @@ export function processEndOfTurnHealingAndAttrition(
   }
 
   return changed ? { ...state, units: nextUnits } : state;
+}
+
+// ============================================================================
+// Tactical Stance (Fortify), Demolish, Disband & Keep Field Repair
+// ============================================================================
+
+export function canFortifyUnit(state: GameState, unitId: string): boolean {
+  const unit = state.units[unitId];
+  if (!unit) return false;
+  if (unit.isFortified || unit.hasAttacked) return false;
+  if (unit.spawnedOnTurn === state.turnNumber) return false;
+  return true;
+}
+
+/**
+ * Entrenches a unit for the remainder of the turn (+15% Defense until it moves or attacks;
+ * +2 extra stationary heal at turn end if it did not move this turn).
+ */
+export function fortifyUnit(state: GameState, unitId: string): GameState {
+  if (!canFortifyUnit(state, unitId)) return state;
+  const unit = state.units[unitId]!;
+  return {
+    ...state,
+    units: {
+      ...state.units,
+      [unitId]: {
+        ...unit,
+        isFortified: true,
+        hasAttacked: true,
+        remainingMovement: 0,
+      },
+    },
+  };
+}
+
+export function getDemolishRefund(houseId: HouseId, improvementId: ImprovementId): number {
+  const cost = getImprovementCost(houseId, improvementId);
+  return Math.floor(cost * DEMOLISH_REFUND_RATIO);
+}
+
+export function canDemolishImprovement(
+  state: GameState,
+  houseId: HouseId,
+  tileKey: CoordKey,
+): boolean {
+  const tile = state.tiles[tileKey];
+  const house = state.houses[houseId];
+  if (!tile || !house || house.isEliminated) return false;
+  if (tile.ownerHouseId !== houseId || tile.improvement === null) return false;
+  return true;
+}
+
+/**
+ * Clears an owned tile improvement, refunding 25% of its Material cost so players
+ * can re-optimize adjacency layouts as territories expand and decrees unlock.
+ */
+export function demolishImprovement(
+  state: GameState,
+  houseId: HouseId,
+  tileKey: CoordKey,
+): GameState {
+  if (!canDemolishImprovement(state, houseId, tileKey)) return state;
+  const tile = state.tiles[tileKey]!;
+  const house = state.houses[houseId]!;
+  const impId = tile.improvement!;
+  const refund = getDemolishRefund(houseId, impId);
+
+  let nextState: GameState = {
+    ...state,
+    houses: {
+      ...state.houses,
+      [houseId]: {
+        ...house,
+        resources: {
+          ...house.resources,
+          materials: house.resources.materials + refund,
+        },
+      },
+    },
+    tiles: {
+      ...state.tiles,
+      [tileKey]: {
+        ...tile,
+        improvement: null,
+        fortificationHp: null,
+      },
+    },
+  };
+
+  if (impId === 'watchtower' || impId === 'signal_bastion') {
+    nextState = recomputeHouseFog(nextState, houseId);
+  }
+  if (impId === 'war_camp') {
+    nextState = autoRehomeOrphans(nextState, houseId);
+  }
+  nextState = appendChronicle(nextState, {
+    type: 'improvement_demolished',
+    actorHouseId: houseId,
+    targetHouseId: null,
+    tileKey,
+    summary: `Cleared ${IMPROVEMENTS[impId].name} (+${refund} Mat salvaged).`,
+    isPublic: false,
+  });
+
+  return nextState;
+}
+
+export function getDisbandRefund(state: GameState, houseId: HouseId, unitId: string): number {
+  const unit = state.units[unitId];
+  const house = state.houses[houseId];
+  if (!unit || !house || unit.houseId !== houseId) return 0;
+  const keep = getKeepAt(state, unit.tileKey);
+  if (!keep || keep.ownerHouseId !== houseId) return 0;
+  const cost = getUnitMatCost(house, unit.typeId);
+  return Math.floor(cost * DISBAND_KEEP_REFUND_RATIO);
+}
+
+export function canDisbandUnit(state: GameState, houseId: HouseId, unitId: string): boolean {
+  const unit = state.units[unitId];
+  return unit !== undefined && unit.houseId === houseId;
+}
+
+/**
+ * Disbands a friendly unit to free up Army Cap (refunding 25% Materials if standing on a friendly Keep).
+ */
+export function disbandUnit(state: GameState, houseId: HouseId, unitId: string): GameState {
+  if (!canDisbandUnit(state, houseId, unitId)) return state;
+  const unit = state.units[unitId]!;
+  const house = state.houses[houseId]!;
+  const refund = getDisbandRefund(state, houseId, unitId);
+
+  const nextUnits = { ...state.units };
+  delete nextUnits[unitId];
+
+  let nextState: GameState = {
+    ...state,
+    units: nextUnits,
+    houses: {
+      ...state.houses,
+      [houseId]: {
+        ...house,
+        resources: {
+          ...house.resources,
+          materials: house.resources.materials + refund,
+        },
+      },
+    },
+  };
+
+  nextState = autoRehomeOrphans(nextState, houseId);
+  nextState = recomputeHouseFog(nextState, houseId);
+  nextState = appendChronicle(nextState, {
+    type: 'unit_disbanded',
+    actorHouseId: houseId,
+    targetHouseId: null,
+    tileKey: unit.tileKey,
+    summary: `Disbanded ${UNITS[unit.typeId].name}${refund > 0 ? ` (+${refund} Mat recovered)` : ''}.`,
+    isPublic: false,
+  });
+
+  return nextState;
+}
+
+export function canRepairKeep(state: GameState, houseId: HouseId, keepId: string): boolean {
+  const house = state.houses[houseId];
+  const keep = state.keeps[keepId];
+  if (!house || house.isEliminated || !keep || keep.ownerHouseId !== houseId) return false;
+  if (keep.keepHp >= keep.maxKeepHp) return false;
+  if (house.resources.materials < KEEP_REPAIR_MAT_COST) return false;
+  return true;
+}
+
+/**
+ * Spends 6 Materials to immediately restore +8 Keep Garrison HP.
+ */
+export function repairKeep(state: GameState, houseId: HouseId, keepId: string): GameState {
+  if (!canRepairKeep(state, houseId, keepId)) return state;
+  const house = state.houses[houseId]!;
+  const keep = state.keeps[keepId]!;
+  const nextHp = Math.min(keep.maxKeepHp, keep.keepHp + KEEP_REPAIR_HP_AMOUNT);
+
+  let nextState: GameState = {
+    ...state,
+    houses: {
+      ...state.houses,
+      [houseId]: {
+        ...house,
+        resources: {
+          ...house.resources,
+          materials: house.resources.materials - KEEP_REPAIR_MAT_COST,
+        },
+      },
+    },
+    keeps: {
+      ...state.keeps,
+      [keepId]: {
+        ...keep,
+        keepHp: nextHp,
+      },
+    },
+  };
+
+  nextState = appendChronicle(nextState, {
+    type: 'keep_repaired',
+    actorHouseId: houseId,
+    targetHouseId: null,
+    tileKey: keep.tileKey,
+    summary: `Repaired ${keep.name} fortifications (+${nextHp - keep.keepHp} HP).`,
+    isPublic: false,
+  });
+
+  return nextState;
 }

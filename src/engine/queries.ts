@@ -34,8 +34,11 @@ import {
   VILLAGE_MAX_HP,
 } from '../data/index.ts';
 import {
+  canPillageTile,
   getCounterMultiplier,
+  getTileTerrainOrFortDefBonus,
   getUnitAttackRange,
+  getUnitRank,
   hasLineOfSight,
   previewUnitCombat,
   type CombatPreview,
@@ -43,17 +46,22 @@ import {
 import { chebyshevDist, coordKey, getNeighbors } from './coords.ts';
 import {
   canBuildImprovement,
+  canRepairKeep,
   computeKeepYield,
   computeTileYield,
   getImprovementCost,
   getUnitUpkeep,
+  keepHasSmithyCombo,
   type TileYield,
 } from './economy.ts';
+import { getReachableTiles } from './movement.ts';
 import {
   getHouseKeeps,
   getHouseUnits,
+  getKeepArmyCap,
   getKeepAt,
   getKeepPalisadeCap,
+  getKeepSupportedUnitIds,
   getUnitAt,
   houseHasDecree,
 } from './stateHelpers.ts';
@@ -389,18 +397,116 @@ export function previewImprovementOnTile(
   };
 }
 
+/**
+ * Returns true ONLY if `unit` actually has a legal move, attack target, or pillage action left.
+ * Fixes the turn-lock bug where moved units with no enemies in range kept flagging as "idle".
+ */
+export function canUnitAct(state: GameState, unit: UnitState): boolean {
+  if (unit.isFortified) return false;
+  if (
+    unit.remainingMovement > 0 &&
+    (!unit.hasAttacked || unit.typeId === 'dusk_outrider') &&
+    Object.keys(getReachableTiles(state, unit.id)).length > 0
+  ) {
+    return true;
+  }
+  if (!unit.hasAttacked) {
+    if (getUnitAttackTargets(state, unit.id).length > 0) return true;
+    if (canPillageTile(state, unit.id)) return true;
+  }
+  return false;
+}
+
+export function getActionableUnits(
+  state: GameState,
+  houseId: HouseId,
+  skippedUnitIds?: readonly string[],
+): UnitState[] {
+  const skipped = skippedUnitIds && skippedUnitIds.length > 0 ? new Set(skippedUnitIds) : null;
+  return getHouseUnits(state, houseId)
+    .filter((u) => (!skipped || !skipped.has(u.id)) && canUnitAct(state, u))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export function getNextIdleUnit(
   state: GameState,
   houseId: HouseId,
   currentUnitId: string | null,
+  skippedUnitIds?: readonly string[],
 ): UnitState | null {
-  const idle = getHouseUnits(state, houseId)
-    .filter((u) => !u.hasMoved || !u.hasAttacked)
-    .sort((a, b) => a.id.localeCompare(b.id));
+  const idle = getActionableUnits(state, houseId, skippedUnitIds);
   if (idle.length === 0) return null;
   if (!currentUnitId) return idle[0]!;
   const idx = idle.findIndex((u) => u.id === currentUnitId);
   return idle[(idx + 1) % idle.length]!;
+}
+
+export function getUnitRankLabel(xp: number): {
+  readonly rank: 0 | 1 | 2;
+  readonly title: string;
+  readonly nextXp: number | null;
+} {
+  const rank = getUnitRank(xp);
+  if (rank === 2) return { rank: 2, title: 'Veteran', nextXp: null };
+  if (rank === 1) return { rank: 1, title: 'Seasoned', nextXp: 5 };
+  return { rank: 0, title: 'Recruit', nextXp: 2 };
+}
+
+export interface TileInspectInfo {
+  readonly yieldNow: TileYield;
+  readonly defBonusPct: number;
+  readonly moveCostLabel: string;
+}
+
+export function getTileInspectInfo(
+  state: GameState,
+  tileKey: CoordKey,
+  viewerHouseId: HouseId,
+): TileInspectInfo {
+  const tile = state.tiles[tileKey];
+  if (!tile) {
+    return {
+      yieldNow: { food: 0, materials: 0, coin: 0 },
+      defBonusPct: 0,
+      moveCostLabel: '—',
+    };
+  }
+  const defHouse = tile.ownerHouseId ?? viewerHouseId;
+  const defBonusPct = Math.round(getTileTerrainOrFortDefBonus(state, tile, defHouse) * 100);
+  const yieldNow = computeTileYield(state, tileKey);
+  const moveCostLabel =
+    tile.terrain === 'mountain'
+      ? 'Impassable'
+      : tile.terrain === 'plains'
+        ? '1 MP'
+        : '2 MP';
+  return { yieldNow, defBonusPct, moveCostLabel };
+}
+
+export interface KeepInspectInfo {
+  readonly keepYield: TileYield;
+  readonly usedCap: number;
+  readonly maxCap: number;
+  readonly foodThreshold: number;
+  readonly hasSmithyCombo: boolean;
+  readonly canRepair: boolean;
+}
+
+export function getKeepInspectInfo(
+  state: GameState,
+  houseId: HouseId,
+  keepId: string,
+): KeepInspectInfo | null {
+  const keep = state.keeps[keepId];
+  if (!keep) return null;
+  return {
+    keepYield: computeKeepYield(state, keepId),
+    usedCap: getKeepSupportedUnitIds(state, keepId).length,
+    maxCap: getKeepArmyCap(state, keepId),
+    foodThreshold: getKeepFoodThreshold(keep),
+    hasSmithyCombo: keepHasSmithyCombo(state, keepId),
+    canRepair: canRepairKeep(state, houseId, keepId),
+  };
 }
 
 export function getKeepPalisadeCount(state: GameState, keepId: string): {

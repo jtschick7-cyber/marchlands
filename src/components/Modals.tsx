@@ -20,20 +20,28 @@ import {
   AUDIENCE_PETITION_FAVOR,
   AUDIENCE_REROLL_FAVOR,
   CROWN_WRITS,
+  DECREE_IDS,
   DECREES,
   FRONTIER_EVENTS,
   HOUSES,
   KEEP_SPECIALIZATIONS,
   MANDATE_MIN_FAVOR,
   MANDATE_MIN_KEEPS,
+  SEASONS,
+  UNITS,
 } from '../data/index.ts';
 import { canPayRegentsTithe } from '../engine/crown.ts';
 import { getEligibleUnownedDecrees } from '../engine/draftAndSpec.ts';
-import { getSupremacyStats } from '../engine/queries.ts';
+import {
+  getKeepInspectInfo,
+  getSupremacyStats,
+  getUnitRankLabel,
+} from '../engine/queries.ts';
 import { computeScore, rankHousesByScore } from '../engine/scoring.ts';
+import { getHouseKeeps, getHouseUnits, getSeason } from '../engine/stateHelpers.ts';
 import { buildRecap } from '../engine/turn.ts';
-import { HouseSigilSvg } from './svg/HeraldrySvg.tsx';
-import { formatRelativeTime } from './uiTypes.ts';
+import { HouseSigilSvg, SeasonIconSvg } from './svg/HeraldrySvg.tsx';
+import { formatRelativeTime, type DiscoveredRuinBanner } from './uiTypes.ts';
 
 // ----------------------------------------------------------------------------
 // 1. Tier-2 Keep Specialization Modal
@@ -808,6 +816,450 @@ export function GameOverModal({
         >
           Return to Title Screen
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 9. Relic Ruin Discovery Modal (Aged Vellum Lore & Reward Card)
+// ----------------------------------------------------------------------------
+
+export function RelicDiscoveryModal({
+  ruin,
+  onClose,
+}: {
+  readonly ruin: DiscoveredRuinBanner;
+  readonly onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3">
+      <div className="w-full max-w-md rounded-2xl surface-vellum text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
+        <div>
+          <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase tracking-wide">
+            Relic Ruin Discovered
+          </span>
+          <h2 className="font-serif-march text-xl font-bold mt-1">{ruin.title}</h2>
+          <p className="text-xs italic text-stone-700 leading-relaxed mt-1.5">{ruin.vignette}</p>
+        </div>
+
+        <div className="p-2.5 rounded-xl bg-amber-100/80 border border-amber-400/70 text-xs font-bold text-amber-950">
+          Reward Claimed: {ruin.rewardSummary}
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="touch-target w-full rounded-xl bg-[#1C1917] text-[#FAF7F0] text-sm font-bold active:bg-stone-800"
+        >
+          Claim &amp; Continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 10. Realm Ledger & 25-Decree Codex Drawer (4-Tab Strategic Command View)
+// ----------------------------------------------------------------------------
+
+type LedgerTab = 'standings' | 'decrees' | 'forces' | 'chronicle';
+
+export function RealmLedgerDrawer({
+  state,
+  viewerHouseId,
+  onPanToTile,
+  onClose,
+}: {
+  readonly state: GameState;
+  readonly viewerHouseId: HouseId;
+  readonly onPanToTile: (tileKey: CoordKey) => void;
+  readonly onClose: () => void;
+}) {
+  const [tab, setTab] = useState<LedgerTab>('standings');
+  const house = state.houses[viewerHouseId]!;
+  const houseDef = HOUSES[viewerHouseId];
+  const season = getSeason(state.turnNumber);
+  const seasonDef = SEASONS[season];
+  const rankedHouseIds = rankHousesByScore(state, false);
+  const ownKeeps = getHouseKeeps(state, viewerHouseId);
+  const ownUnits = getHouseUnits(state, viewerHouseId);
+  const fog = state.fog[viewerHouseId] ?? {};
+
+  const activeEffects = state.activeEffects.filter(
+    (e) =>
+      e.expiresAfterTurn >= state.turnNumber &&
+      (e.houseId === null || e.houseId === viewerHouseId),
+  );
+
+  const visibleChronicle = [...state.chronicle]
+    .filter(
+      (e) =>
+        e.isPublic ||
+        e.actorHouseId === viewerHouseId ||
+        e.targetHouseId === viewerHouseId ||
+        (e.tileKey !== null && fog[e.tileKey] === 'visible'),
+    )
+    .reverse()
+    .slice(0, 40);
+
+  const coinPct = Math.min(
+    100,
+    Math.round((house.lifetimeCoinEarned / Math.max(1, house.nextCoinMilestone)) * 100),
+  );
+
+  const tabs: Array<{ id: LedgerTab; label: string }> = [
+    { id: 'standings', label: 'Realm' },
+    { id: 'decrees', label: `Decrees (${house.decreeIds.length})` },
+    { id: 'forces', label: `Forces (${ownUnits.length})` },
+    { id: 'chronicle', label: 'Chronicle' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-end justify-center">
+      <div className="w-full max-w-md max-h-[86vh] flex flex-col rounded-t-2xl surface-iron border-t-2 border-sky-500/60 safe-bottom text-slate-100 overflow-hidden">
+        {/* Header */}
+        <div className="p-3.5 pb-2 border-b border-slate-700/80 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <HouseSigilSvg houseId={viewerHouseId} size={28} />
+            <div className="min-w-0">
+              <h2 className="font-serif-march text-base font-bold text-[#FAF7F0] truncate">
+                {houseDef.name} — Realm Ledger
+              </h2>
+              <p className="text-[11px] text-amber-200/85 truncate">{houseDef.epithet}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="touch-target px-3 rounded-xl bg-slate-800 border border-slate-600 text-xs font-bold shrink-0"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* 4 Tabs */}
+        <div className="px-3 pt-2 pb-1.5 grid grid-cols-4 gap-1.5 border-b border-slate-800">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`min-h-[40px] rounded-xl text-[11px] font-bold transition ${
+                tab === t.id
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'bg-slate-900/80 border border-slate-700 text-slate-300'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+          {tab === 'standings' && (
+            <>
+              {/* Coin Milestone Progress -> Next Royal Decree Draft */}
+              <div className="p-3 rounded-xl bg-slate-950/75 border border-amber-500/35 space-y-1.5">
+                <div className="flex items-center justify-between text-xs tabular-nums">
+                  <span className="font-bold text-amber-200">Next Coin Milestone Draft</span>
+                  <span className="font-bold text-yellow-300">
+                    {house.lifetimeCoinEarned} / {house.nextCoinMilestone} Coin
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full"
+                    style={{ width: `${coinPct}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Earn {Math.max(0, house.nextCoinMilestone - house.lifetimeCoinEarned)} more gross
+                  Coin to trigger a 1-of-3 Royal Decree Draft.
+                </p>
+              </div>
+
+              {/* Season & Active Frontier Effects */}
+              <div className="p-3 rounded-xl bg-slate-950/75 border border-slate-700 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
+                  <SeasonIconSvg season={season} size={15} />
+                  <span>
+                    {seasonDef.name} — {seasonDef.subtitle}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  River crossing: {seasonDef.riverMoveCost} MP • Farm delta:{' '}
+                  {seasonDef.farmFoodDelta >= 0 ? `+${seasonDef.farmFoodDelta}` : seasonDef.farmFoodDelta}{' '}
+                  Food • Sight delta: {seasonDef.unitSightDelta} • Move delta:{' '}
+                  {seasonDef.unitMovementDelta}
+                  {seasonDef.winterAttritionDamage > 0
+                    ? ` • Winter Attrition: −${seasonDef.winterAttritionDamage} HP outside home borders`
+                    : ''}
+                </p>
+                {activeEffects.length > 0 && (
+                  <div className="pt-1 space-y-1">
+                    {activeEffects.map((e) => (
+                      <div
+                        key={e.id}
+                        className="p-2 rounded-lg bg-indigo-950/70 border border-indigo-500/45 text-[11px]"
+                      >
+                        <strong className="text-indigo-200">
+                          {FRONTIER_EVENTS[e.effectId].title}
+                        </strong>{' '}
+                        <span className="text-slate-300">
+                          ({Math.max(1, e.expiresAfterTurn - state.turnNumber + 1)}t left) —{' '}
+                          {FRONTIER_EVENTS[e.effectId].effectText}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Live Noble House Leaderboard */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-amber-300">
+                  Noble House Standings
+                </h3>
+                {rankedHouseIds.map((hid, idx) => {
+                  const h = state.houses[hid]!;
+                  const sc = computeScore(state, hid, false);
+                  const sup = getSupremacyStats(state, hid);
+                  const isViewer = hid === viewerHouseId;
+                  return (
+                    <div
+                      key={hid}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs tabular-nums ${
+                        isViewer
+                          ? 'bg-sky-950/55 border-sky-400/60'
+                          : 'bg-slate-900/80 border-slate-700/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-slate-400 w-5">#{idx + 1}</span>
+                        <HouseSigilSvg houseId={hid} size={22} />
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-100 truncate">
+                            {HOUSES[hid].name}
+                            {isViewer ? ' (You)' : ''}
+                            {h.isEliminated ? ' • Fallen' : ''}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {sup.ownedKeeps} Keeps • {h.decreeIds.length} Decrees • {h.favor} Favor
+                          </div>
+                        </div>
+                      </div>
+                      <span className="font-bold text-amber-200 shrink-0">{sc.total} pt</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tab === 'decrees' && (
+            <>
+              {/* House Passive Card */}
+              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/45 space-y-1">
+                <div className="text-[10px] font-bold uppercase text-amber-300">House Passive</div>
+                <div className="font-serif-march text-sm font-bold text-amber-100">
+                  {houseDef.passiveName}
+                </div>
+                <p className="text-xs text-slate-200 leading-snug">{houseDef.passiveDescription}</p>
+              </div>
+
+              {/* Enacted Decrees */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-emerald-300">
+                  Enacted Royal Decrees ({house.decreeIds.length})
+                </h3>
+                {house.decreeIds.length === 0 ? (
+                  <p className="text-xs text-slate-400">
+                    None enacted yet. Reach 25 Lifetime Coin or upgrade a Keep to Tier 2 to trigger
+                    your first 1-of-3 Royal Decree Draft!
+                  </p>
+                ) : (
+                  house.decreeIds.map((id) => {
+                    const d = DECREES[id];
+                    return (
+                      <div
+                        key={id}
+                        className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-600/45 space-y-0.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-emerald-100">{d.title}</span>
+                          <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-900/70 text-emerald-200">
+                            {d.category}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-200">{d.effectText}</p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Remaining Eligible Decree Codex */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Available Decree Codex
+                </h3>
+                {DECREE_IDS.filter(
+                  (id) =>
+                    !house.decreeIds.includes(id) &&
+                    !DECREES[id].excludedHouseIds?.includes(viewerHouseId),
+                ).map((id) => {
+                  const d = DECREES[id];
+                  return (
+                    <div
+                      key={id}
+                      className="p-2 rounded-xl bg-slate-900/70 border border-slate-800 space-y-0.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-slate-200">{d.title}</span>
+                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                          {d.category}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">{d.effectText}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tab === 'forces' && (
+            <>
+              {/* Own Keeps */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-amber-300">
+                  Your Strongholds ({ownKeeps.length})
+                </h3>
+                {ownKeeps.map((k) => {
+                  const info = getKeepInspectInfo(state, viewerHouseId, k.id);
+                  return (
+                    <button
+                      key={k.id}
+                      type="button"
+                      onClick={() => {
+                        onPanToTile(k.tileKey);
+                        onClose();
+                      }}
+                      className="touch-target w-full p-2.5 rounded-xl bg-slate-900/85 border border-slate-700 text-left active:bg-slate-800 space-y-1"
+                    >
+                      <div className="flex items-center justify-between text-xs tabular-nums">
+                        <span className="font-serif-march font-bold text-amber-200">
+                          {k.name} • Tier {k.tier}
+                          {k.specialization !== 'none'
+                            ? ` (${KEEP_SPECIALIZATIONS[k.specialization].name})`
+                            : ''}
+                        </span>
+                        <span className="text-slate-300">
+                          HP {k.keepHp}/{k.maxKeepHp}
+                        </span>
+                      </div>
+                      {info && (
+                        <div className="flex items-center justify-between text-[11px] text-slate-300 tabular-nums">
+                          <span>
+                            Food {k.foodProgress}/{info.foodThreshold} (+{info.keepYield.food}/t) •
+                            Cap {info.usedCap}/{info.maxCap}
+                          </span>
+                          <span className="text-sky-300 font-semibold">Locate →</span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Own Units */}
+              <div className="space-y-1.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-sky-300">
+                  Active Troops ({ownUnits.length})
+                </h3>
+                {ownUnits.length === 0 ? (
+                  <p className="text-xs text-slate-400">
+                    No troops deployed. Tap your Keep on the map to muster Militia, Spearmen, or
+                    your signature House unit.
+                  </p>
+                ) : (
+                  ownUnits.map((u) => {
+                    const def = UNITS[u.typeId];
+                    const rank = getUnitRankLabel(u.xp ?? 0);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => {
+                          onPanToTile(u.tileKey);
+                          onClose();
+                        }}
+                        className="touch-target w-full p-2.5 rounded-xl bg-slate-900/85 border border-slate-700 text-left flex items-center justify-between gap-2 text-xs tabular-nums active:bg-slate-800"
+                      >
+                        <div>
+                          <div className="font-bold text-slate-100">
+                            {def.name}{' '}
+                            <span className="text-[10px] font-semibold text-amber-300">
+                              ({rank.title})
+                            </span>
+                            {u.isFortified && (
+                              <span className="ml-1 text-[10px] text-emerald-400">• Fortified</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            HP {u.hp}/{u.maxHp} • ATK {def.attack} • DEF {def.defense}
+                            {u.homeKeepId === 'orphaned' ? ' • Supply-Severed' : ''}
+                          </div>
+                        </div>
+                        <span className="text-sky-300 font-semibold text-[11px] shrink-0">
+                          Locate →
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+
+          {tab === 'chronicle' && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-amber-300">
+                Frontier Chronicle (Latest 40)
+              </h3>
+              {visibleChronicle.length === 0 ? (
+                <p className="text-xs text-slate-400">Your campaign chronicle begins now.</p>
+              ) : (
+                visibleChronicle.map((ev) =>
+                  ev.tileKey ? (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => {
+                        onPanToTile(ev.tileKey!);
+                        onClose();
+                      }}
+                      className="touch-target w-full text-left p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-200 active:bg-slate-800"
+                    >
+                      <span className="text-amber-400 font-bold mr-1.5">T{ev.turnNumber}</span>
+                      <span>{ev.summary}</span>
+                    </button>
+                  ) : (
+                    <div
+                      key={ev.id}
+                      className="p-2 rounded-xl bg-slate-900/50 border border-slate-800/70 text-xs text-slate-300"
+                    >
+                      <span className="text-amber-400 font-bold mr-1.5">T{ev.turnNumber}</span>
+                      <span>{ev.summary}</span>
+                    </div>
+                  ),
+                )
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

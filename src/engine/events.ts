@@ -182,6 +182,8 @@ export function resolveEventChoice(
           spawnedOnTurn: nextState.turnNumber,
           isMutinied: false,
           damagedSinceLastTurn: false,
+          xp: 0,
+          isFortified: false,
         };
         house = {
           ...house,
