@@ -241,9 +241,9 @@ export function HouseSigilSvg({
 }
 
 /**
- * 36x36 bespoke illustrated miniature soldier / rider / siege engine figures.
- * Replaces abstract shield badges with unmistakable tabletop miniatures dressed
- * in the owning House's colorblind-safe heraldry palette.
+ * 36x36 sharpened, cel-shaded miniature soldier / rider / siege engine figures.
+ * Uses sculpted armor/boots, two-tone drapery shading, crisp metallic glints,
+ * and bold dark tabletop ink outlines for instant clarity on 48x48 map tiles.
  */
 export function UnitFigureSvg({
   unitId,
@@ -256,215 +256,267 @@ export function UnitFigureSvg({
   const primary = c.primary;
   const accent = c.lightTint;
   const darkTrim = c.darkStroke;
-  const ink = '#0F172A';
-  const steel = '#E2E8F0';
-  const steelMid = '#94A3B8';
+  const ink = '#0B1120';
+  const steelHi = '#F8FAFC';
+  const steel = '#CBD5E1';
+  const steelDark = '#64748B';
+  const leather = '#78350F';
   const wood = '#92400E';
-  const skin = '#F3D2B3';
+  const skin = '#F2CBA5';
+  const skinShade = '#D9A77B';
   const gold = '#FACC15';
+  const goldDark = '#B45309';
 
   switch (unitId) {
     case 'militia':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Legs & boots */}
-          <path d="M14.5 26 V32 M20.5 26 V32" stroke="#334155" strokeWidth="2.6" />
-          <path d="M13 32 H16 M19.5 32 H22.5" stroke="#1E293B" strokeWidth="2" />
-          {/* Raised wood-axe in right hand */}
-          <path d="M23 23 L29 9.5" stroke={wood} strokeWidth="2.1" />
-          <path d="M26.5 10.5 C30 9.5 32 12 30.8 15.2 L26 13.5 Z" fill={steel} />
-          {/* Surcoat tunic */}
-          <path d="M12.5 16.5 L17.5 15 L22.5 16.5 L23.5 27 H11.5 Z" fill={primary} />
-          <path d="M12 22.5 H23" stroke="#451A03" strokeWidth="1.4" />
-          {/* Head & leather cap */}
-          <circle cx="17.5" cy="11.5" r="3.6" fill={skin} />
-          <path d="M13.5 11 C13.8 7.5 21.2 7.5 21.5 11 Z" fill="#78350F" />
-          {/* Round wooden buckler */}
-          <circle cx="11.5" cy="21.5" r="4.6" fill="#B45309" stroke={ink} strokeWidth="1.15" />
-          <circle cx="11.5" cy="21.5" r="2.8" fill={primary} stroke={darkTrim} strokeWidth="0.8" />
-          <circle cx="11.5" cy="21.5" r="1.1" fill={steel} stroke="none" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Sculpted boots in braced stance */}
+          <path d="M13.2 25.5 H16.6 L16.2 31.8 H12.4 L13.2 29.8 Z" fill="#334155" />
+          <path d="M19.2 25.5 H22.6 L23.5 31.8 H19.6 L19.4 29.8 Z" fill="#1E293B" />
+          {/* Raised bearded wood-axe */}
+          <path d="M22.5 23 L29 8.2" stroke={wood} strokeWidth="2.1" />
+          <path d="M27.2 9 C31.2 8.2 33 11.4 31.2 15.6 L26.3 13.4 Z" fill={steel} />
+          <path d="M30.5 9.6 C31.8 11.3 31.6 13.4 30.6 14.8" fill="none" stroke={steelHi} strokeWidth="0.85" />
+          {/* Cel-shaded gambeson tunic */}
+          <path d="M12.2 16 L17.8 14.6 L23.2 16 L24.2 26.4 H11.4 Z" fill={primary} />
+          <path d="M18 14.8 L23.2 16 L24.2 26.4 H18 Z" fill={darkTrim} opacity="0.4" stroke="none" />
+          {/* Cinched leather belt & brass buckle */}
+          <rect x="11.6" y="21.4" width="12.4" height="2.2" rx="0.5" fill={leather} />
+          <rect x="16.8" y="21.2" width="2.2" height="2.6" rx="0.4" fill={gold} strokeWidth="0.6" />
+          {/* Head & stitched leather coif */}
+          <circle cx="17.8" cy="11.2" r="3.6" fill={skin} />
+          <path d="M19 8.6 A3.4 3.4 0 0 1 19 14.2" fill={skinShade} stroke="none" opacity="0.55" />
+          <path d="M13.8 10.8 C14 6.6 21.6 6.6 21.8 10.8 L20.8 11.4 H14.8 Z" fill={leather} />
+          <path d="M15.4 8.2 Q17.6 7.4 19.6 8.2" fill="none" stroke="#B45309" strokeWidth="0.8" />
+          {/* Round iron-rimmed buckler */}
+          <circle cx="11.2" cy="21.5" r="4.8" fill="#B45309" strokeWidth="1.05" />
+          <circle cx="11.2" cy="21.5" r="3.4" fill={primary} stroke={steel} strokeWidth="0.8" />
+          <circle cx="11.2" cy="21.5" r="1.2" fill={steelHi} stroke={ink} strokeWidth="0.55" />
         </g>
       );
 
     case 'men_at_arms':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Armored greaves */}
-          <path d="M14.5 26.5 V32.5 M20.5 26.5 V32.5" stroke={steelMid} strokeWidth="2.8" />
-          {/* Flowing House cape behind */}
-          <path d="M12 16 L9.5 28 L15 27 Z" fill={darkTrim} />
-          {/* Two-handed broadsword held high */}
-          <path d="M22.5 22 L30.5 6.5" stroke={steel} strokeWidth="2.4" />
-          <path d="M22 18.5 L27 21" stroke={gold} strokeWidth="2" />
-          <path d="M21 22.5 L23.5 19.5" stroke={wood} strokeWidth="2" />
-          {/* Mail hauberk & House tabard */}
-          <path d="M12 15.5 H23 L24 27.5 H11 Z" fill={primary} />
-          <path d="M15.5 15.5 V27.5 M19.5 15.5 V27.5" stroke={accent} strokeWidth="0.9" opacity="0.6" />
-          <rect x="11.5" y="21.5" width="12" height="2" fill="#451A03" />
-          {/* Steel pauldrons */}
-          <circle cx="12" cy="16.5" r="2.3" fill={steel} />
-          <circle cx="23" cy="16.5" r="2.3" fill={steel} />
-          {/* Visored steel helm */}
-          <path d="M14 13.5 V9.5 A3.5 3.5 0 0 1 21 9.5 V13.5 Z" fill={steel} />
-          <path d="M15 11.2 H20" stroke={ink} strokeWidth="1.3" />
-          {/* Heater shield on left arm */}
-          <path d="M8.5 17.5 H15.5 V22.5 C15.5 25 13.7 26.8 12 27.8 C10.3 26.8 8.5 25 8.5 22.5 Z" fill={primary} stroke={steel} strokeWidth="1.2" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Flowing dark cloak */}
+          <path d="M12.5 15.5 L8 28.5 L15.5 27.5 Z" fill={darkTrim} />
+          {/* Armored steel greaves */}
+          <path d="M13.2 25.5 H16.8 L16.2 32.2 H12.4 Z" fill={steel} />
+          <path d="M19.2 25.5 H22.8 L23.6 32.2 H19.6 Z" fill={steelDark} />
+          {/* Gleaming two-handed longsword */}
+          <polygon points="22.8,20.2 30.8,4.6 32.4,5.6 24.4,21.2" fill={steel} />
+          <path d="M24.2 18.8 L31.2 5.4" stroke={steelHi} strokeWidth="0.8" />
+          <path d="M21.2 18 L26.5 20.6" stroke={gold} strokeWidth="2.1" />
+          <path d="M21 22.8 L23.5 19.5" stroke={leather} strokeWidth="2" />
+          {/* Plate breastplate & House surcoat */}
+          <path d="M11.8 15.2 H23.6 L24.6 26.8 H11 Z" fill={primary} />
+          <path d="M18.2 15.2 H23.6 L24.6 26.8 H18.2 Z" fill={darkTrim} opacity="0.42" stroke="none" />
+          <path d="M12.2 15.2 H23.2 V19.6 L17.8 21.4 L12.2 19.6 Z" fill={steel} />
+          <rect x="11.6" y="21.6" width="12.6" height="2" fill={leather} />
+          <rect x="16.8" y="21.3" width="2.2" height="2.6" fill={gold} strokeWidth="0.6" />
+          {/* Fluted steel pauldrons */}
+          <path d="M9.6 17.5 C9.6 14.5 13.8 14.2 14.2 17.5 Z" fill={steel} />
+          <path d="M21.2 17.5 C21.6 14.2 25.8 14.5 25.8 17.5 Z" fill={steelDark} />
+          {/* Visored armet helm with dark eye-slit & crest glint */}
+          <path d="M13.8 14 V9.4 A4 4 0 0 1 21.8 9.4 V14 L17.8 15 Z" fill={steel} />
+          <path d="M17.8 5.6 A4 4 0 0 1 21.8 9.4 V14 L17.8 15 Z" fill={steelDark} opacity="0.45" stroke="none" />
+          <path d="M15 10.6 H20.6" stroke={ink} strokeWidth="1.5" />
+          <path d="M15.2 7.8 Q17.2 6.8 19.2 7.5" fill="none" stroke={steelHi} strokeWidth="0.85" />
+          {/* Steel-rimmed heater shield */}
+          <path d="M7.8 17.4 H15.4 V22.4 C15.4 25.2 13.5 27.1 11.6 28.2 C9.7 27.1 7.8 25.2 7.8 22.4 Z" fill={primary} stroke={steelHi} strokeWidth="1.15" />
+          <path d="M11.6 18.6 V26.8 M9 22 H14.2" stroke={accent} strokeWidth="0.95" opacity="0.8" />
         </g>
       );
 
     case 'spearman':
     case 'free_company_spearman':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Legs */}
-          <path d="M14.5 26 V32.2 M20.5 26 V32.2" stroke="#334155" strokeWidth="2.6" />
-          {/* Tall diagonal pike / spear */}
-          <path d="M23.5 32.5 L27.5 3.8" stroke={wood} strokeWidth="2" />
-          <polygon points="27.8,1.5 25.3,7.5 29.8,7.8" fill={steel} />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Planted greaves & boots */}
+          <path d="M13.2 25.5 H16.6 L16.2 32 H12.4 Z" fill="#334155" />
+          <path d="M19.2 25.5 H22.6 L23.6 32 H19.6 Z" fill="#1E293B" />
+          {/* Towering ashwood pike + gleaming steel leaf-head */}
+          <path d="M23.5 32.5 L27.6 3.5" stroke={wood} strokeWidth="2" />
+          <polygon points="27.9,1 25.2,7.8 27.4,7 30.2,8.1" fill={steel} />
+          <path d="M27.8 2.2 L26.5 6.8" stroke={steelHi} strokeWidth="0.8" />
           {unitId === 'free_company_spearman' && (
-            <path d="M26.5 8.5 L32 10.5 L26.2 12 Z" fill={gold} stroke={ink} strokeWidth="0.8" />
+            <path d="M26.6 8.5 L33 10.2 L28.5 11.4 L32.2 12.6 L26.2 12.2 Z" fill={gold} strokeWidth="0.75" />
           )}
-          {/* Cloak & tunic */}
-          <path d="M12.5 16 H22.5 L23.5 27 H11.5 Z" fill={primary} />
-          <path d="M12 22 H23" stroke="#451A03" strokeWidth="1.3" />
-          {/* Head & kettle helm */}
-          <circle cx="17.5" cy="11.8" r="3.2" fill={skin} />
-          <path d="M12 10.6 Q17.5 6.2 23 10.6 Z" fill={steel} />
+          {/* Shaded House tabard & steel gorget */}
+          <path d="M12.2 15.6 H23.2 L24.2 26.6 H11.2 Z" fill={primary} />
+          <path d="M18 15.6 H23.2 L24.2 26.6 H18 Z" fill={darkTrim} opacity="0.4" stroke="none" />
+          <path d="M13.2 15.5 Q17.8 18.2 22.2 15.5" fill={steel} />
+          <rect x="11.6" y="21.5" width="12.2" height="2" fill={leather} />
+          {/* Head & brimmed steel kettle helm */}
+          <circle cx="17.8" cy="11.8" r="3.2" fill={skin} />
+          <path d="M15 11.4 H20.6" stroke={ink} strokeWidth="1" opacity="0.45" />
+          <path d="M11.6 10.8 Q17.8 5.6 24 10.8 L22.8 11.8 Q17.8 10.4 12.8 11.8 Z" fill={steel} />
+          <path d="M14.5 8.5 Q17.5 7 20.5 8.5" fill="none" stroke={steelHi} strokeWidth="0.85" />
           {unitId === 'free_company_spearman' && (
-            <path d="M19 8 C22 5.5 24 6.5 23.5 9" fill="none" stroke={gold} strokeWidth="1.8" />
+            <path d="M19.8 7.5 C23 4.8 25.2 6.2 24.4 9.2" fill="none" stroke={gold} strokeWidth="1.9" />
           )}
-          {/* Tall kite shield */}
-          <path d="M8.2 16 H15.5 V23 L11.85 28.5 L8.2 23 Z" fill={primary} stroke={steel} strokeWidth="1.2" />
-          <path d="M11.85 17.5 V26" stroke={accent} strokeWidth="1.1" opacity="0.7" />
+          {/* Tall steel-rimmed kite shield */}
+          <path d="M7.6 15.8 H15.4 V22.8 L11.5 29 L7.6 22.8 Z" fill={primary} stroke={steelHi} strokeWidth="1.15" />
+          <path d="M11.5 15.8 H15.4 V22.8 L11.5 29 Z" fill={darkTrim} opacity="0.35" stroke="none" />
+          <path d="M11.5 17.5 V26.8" stroke={accent} strokeWidth="1.15" />
         </g>
       );
 
     case 'vanguard_spearman':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Legs */}
-          <path d="M14.5 26 V32.2 M20.5 26 V32.2" stroke={steelMid} strokeWidth="2.6" />
-          {/* Upright ceremonial pike */}
-          <path d="M25.5 32.5 V3.5" stroke={wood} strokeWidth="2" />
-          <polygon points="25.5,1.2 23.4,7.5 27.6,7.5" fill={gold} />
-          {/* Ivory & gold phalanx tunic */}
-          <path d="M12.5 16 H22.5 L23.5 27.5 H11.5 Z" fill={primary} />
-          {/* Crested solar helm */}
-          <path d="M14 9 C15 4.8 20 4.8 21 9" fill={gold} stroke={ink} strokeWidth="0.9" />
-          <circle cx="17.5" cy="11.5" r="3.4" fill={steel} />
-          <path d="M15.2 11.5 H19.8" stroke={ink} strokeWidth="1.3" />
-          {/* Sun-crested round hoplite shield */}
-          <circle cx="12.5" cy="22" r="5.8" fill={primary} stroke={gold} strokeWidth="1.5" />
-          <circle cx="12.5" cy="22" r="2.2" fill={gold} stroke={ink} strokeWidth="0.8" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Gilded greaves */}
+          <path d="M13.4 25.5 H16.8 L16.2 32 H12.6 Z" fill={steel} />
+          <path d="M19.2 25.5 H22.6 L23.6 32 H19.8 Z" fill={steelDark} />
+          {/* Upright golden-headed ceremonial pike */}
+          <path d="M25.8 32.5 V3.5" stroke={wood} strokeWidth="2" />
+          <polygon points="25.8,0.8 23.4,7.8 25.8,6.8 28.2,7.8" fill={gold} />
+          <path d="M25.8 2 V6.2" stroke="#FEF9C3" strokeWidth="0.8" />
+          {/* Ivory phalanx tunic & gold trim */}
+          <path d="M12.2 15.6 H23.2 L24.2 27 H11.2 Z" fill={primary} />
+          <path d="M12 24.8 H23.5" stroke={gold} strokeWidth="1.4" />
+          {/* Radiating sunburst crest helm */}
+          <path d="M13 9.2 C13.8 4.2 21.8 4.2 22.6 9.2 Z" fill={gold} />
+          <path d="M14.2 14 V9.5 A3.6 3.6 0 0 1 21.4 9.5 V14 Z" fill={steel} />
+          <path d="M15.2 11.2 H20.4 M17.8 11.2 V13.6" stroke={ink} strokeWidth="1.35" />
+          {/* Radiant hoplite shield */}
+          <circle cx="12.2" cy="22" r="6" fill={primary} stroke={gold} strokeWidth="1.6" />
+          <circle cx="12.2" cy="22" r="2.4" fill={gold} stroke={goldDark} strokeWidth="0.8" />
+          <circle cx="11.5" cy="21.2" r="0.8" fill="#FEF9C3" stroke="none" />
         </g>
       );
 
     case 'oathsworn_halberdier':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Heavy steel legs */}
-          <path d="M14.5 26.5 V32.5 M20.5 26.5 V32.5" stroke={steelMid} strokeWidth="3" />
-          {/* Towering halberd */}
-          <path d="M26 32.5 V4" stroke={wood} strokeWidth="2.1" />
-          <polygon points="26,1.5 24.4,6.2 27.6,6.2" fill={steel} />
-          <path d="M26 6.5 C31.5 6.8 32 13 26 14 Z" fill={steel} />
-          {/* Heavy plate chest & House surcoat */}
-          <path d="M11.5 15.5 H23.5 L24.5 27.5 H10.5 Z" fill={primary} />
-          <rect x="11.5" y="15.5" width="12" height="5" fill={steelMid} />
-          {/* Great helm */}
-          <rect x="14" y="7.5" width="7" height="7" rx="2" fill={steel} />
-          <path d="M15 10.5 H20 M17.5 9 V13" stroke={ink} strokeWidth="1.2" />
-          {/* Heavy tower shield */}
-          <rect x="7.5" y="16" width="8" height="13" rx="1.4" fill={primary} stroke={steel} strokeWidth="1.3" />
-          <path d="M9.5 22.5 H13.5 M11.5 18.5 V26.5" stroke={accent} strokeWidth="1.3" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Heavy fortress greaves */}
+          <path d="M13 25.5 H17 L16.5 32.2 H12.4 Z" fill={steel} />
+          <path d="M19 25.5 H23 L23.8 32.2 H19.5 Z" fill={steelDark} />
+          {/* Towering steel halberd */}
+          <path d="M26.5 32.5 V3.8" stroke={wood} strokeWidth="2.1" />
+          <polygon points="26.5,1 24.7,6.4 28.3,6.4" fill={steelHi} />
+          <path d="M26.5 6.4 C32.6 6.8 33.2 13.5 26.5 14.6 Z" fill={steel} />
+          <path d="M30.8 8 C31.8 9.8 31.6 12.2 29.8 13.4" fill="none" stroke={steelHi} strokeWidth="0.85" />
+          <path d="M26.5 9.2 L23.5 10.6 L26.5 12 Z" fill={steelDark} />
+          {/* Heavy steel cuirass & House surcoat */}
+          <path d="M11.2 15 H24 L25 27 H10.2 Z" fill={primary} />
+          <path d="M11.5 15 H23.6 V20.5 H11.5 Z" fill={steel} />
+          <path d="M17.8 15 H23.6 V20.5 H17.8 Z" fill={steelDark} opacity="0.45" stroke="none" />
+          {/* Great helm with visor cross & crown rim */}
+          <rect x="13.8" y="6.8" width="8" height="7.6" rx="2" fill={steel} />
+          <path d="M14.8 10.2 H20.8 M17.8 8.4 V13.2" stroke={ink} strokeWidth="1.4" />
+          <path d="M14.8 8 H18.5" stroke={steelHi} strokeWidth="0.85" />
+          {/* Reinforced tower shield */}
+          <rect x="7" y="15.5" width="8.5" height="13.6" rx="1.6" fill={primary} stroke={steelHi} strokeWidth="1.25" />
+          <path d="M11.2 15.5 H15.5 V29.1 H11.2 Z" fill={darkTrim} opacity="0.32" stroke="none" />
+          <path d="M8.8 22.3 H13.6 M11.2 17.8 V26.8" stroke={accent} strokeWidth="1.35" />
         </g>
       );
 
     case 'archer':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Legs in ranger stance */}
-          <path d="M13 26 L11.5 32 M18.5 26 L20.5 32" stroke="#475569" strokeWidth="2.4" />
-          {/* Quiver on back */}
-          <path d="M9.5 13 L12.5 21" stroke={wood} strokeWidth="3" />
-          <path d="M8.5 11.5 L10.5 12.5 M10.2 10.5 L11.8 11.8" stroke="#FEF08A" strokeWidth="1.1" />
-          {/* Hooded ranger cloak */}
-          <path d="M11.5 15.5 L16 14 L20.5 16.5 L21 27 H11 Z" fill={primary} />
-          <circle cx="15.8" cy="11.5" r="3.3" fill={skin} />
-          <path d="M12 12 C12.5 7 18.8 7 19.5 11.5 L15.5 9.8 Z" fill={primary} />
-          {/* Drawn recurve bow & nocked arrow */}
-          <path d="M23 7.5 Q30.5 17 23 27" fill="none" stroke={wood} strokeWidth="2.1" />
-          <path d="M23 7.5 L19.5 17.5 L23 27" fill="none" stroke="#E2E8F0" strokeWidth="0.9" />
-          <path d="M18.5 17.5 H31" stroke="#FDE68A" strokeWidth="1.4" />
-          <polygon points="32.5,17.5 28.8,15.8 28.8,19.2" fill={steel} />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Braced ranger boots */}
+          <path d="M11.5 25.5 H14.8 L13.5 32 H10.2 Z" fill="#475569" />
+          <path d="M17.2 25.5 H20.4 L22.2 32 H18.8 Z" fill="#334155" />
+          {/* Arrow quiver on back */}
+          <path d="M8.5 12.2 L12.2 21.5" stroke={leather} strokeWidth="3.2" />
+          <path d="M7.6 10.6 L9.8 12 M9.6 9.8 L11.4 11.4" stroke="#FEF08A" strokeWidth="1.2" />
+          {/* Shaded ranger tunic & shoulder cape */}
+          <path d="M11 15.2 L16.2 13.8 L21.2 16 L21.8 26.6 H10.6 Z" fill={primary} />
+          <path d="M16.5 14 L21.2 16 L21.8 26.6 H16.5 Z" fill={darkTrim} opacity="0.38" stroke="none" />
+          <rect x="10.8" y="21.2" width="10.8" height="1.9" fill={leather} />
+          {/* Hooded ranger head */}
+          <circle cx="16" cy="11.2" r="3.3" fill={skin} />
+          <path d="M11.6 12 C12 6.6 19.4 6.6 20 11.6 L15.5 9.6 Z" fill={primary} />
+          <path d="M13 8.2 Q15.5 7 18 8.2" fill="none" stroke={accent} strokeWidth="0.8" opacity="0.65" />
+          {/* Taut recurve bow & nocked arrow */}
+          <path d="M22.8 7 Q31.2 17 22.8 27.5" fill="none" stroke={wood} strokeWidth="2.3" />
+          <path d="M22.8 7 L18.8 17.2 L22.8 27.5" fill="none" stroke={steelHi} strokeWidth="0.85" />
+          <path d="M17.5 17.2 H31.5" stroke="#FDE68A" strokeWidth="1.5" />
+          <polygon points="33.5,17.2 29.4,15.4 29.4,19" fill={steelHi} />
         </g>
       );
 
     case 'longbowman':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
           {/* Ranger boots */}
-          <path d="M12.8 26 L11 32.2 M18.2 26 L20.2 32.2" stroke="#334155" strokeWidth="2.4" />
-          {/* Leafy hooded cloak */}
-          <path d="M9.5 15.5 L15.5 13.5 L20.5 16 L21.5 27.5 H9.5 Z" fill={primary} />
-          <path d="M10.5 21 L19.5 17.5" stroke={accent} strokeWidth="1.1" opacity="0.7" />
-          {/* Hooded head */}
-          <circle cx="15.5" cy="11.2" r="3.2" fill={skin} />
-          <path d="M11.5 12 C11.8 6.5 18.8 6.5 19.5 11.5 L15.5 9.5 Z" fill={darkTrim} />
-          {/* Towering full-height yew warbow */}
-          <path d="M23.5 3.5 Q31.5 17 23.5 31" fill="none" stroke="#B45309" strokeWidth="2.3" />
-          <path d="M23.5 3.5 L19.2 17 L23.5 31" fill="none" stroke="#E2E8F0" strokeWidth="0.95" />
-          <path d="M18.2 17 H32" stroke="#FEF08A" strokeWidth="1.5" />
-          <polygon points="33.5,17 29.5,15.3 29.5,18.7" fill={steel} />
+          <path d="M11.2 25.5 H14.5 L13 32.2 H9.8 Z" fill="#334155" />
+          <path d="M16.8 25.5 H20 L21.8 32.2 H18.4 Z" fill="#1E293B" />
+          {/* Woodland hooded mantle */}
+          <path d="M9.2 15.2 L15.5 13.4 L21 15.8 L21.8 27 H9.2 Z" fill={primary} />
+          <path d="M9.2 15.2 L15.5 13.4 L18.5 17.8 L9.8 20.5 Z" fill={darkTrim} />
+          <path d="M10.5 22.2 H21" stroke={leather} strokeWidth="1.6" />
+          {/* Deep ranger hood */}
+          <circle cx="15.5" cy="11" r="3.2" fill={skin} />
+          <path d="M11 12.2 C11.2 6.2 19.2 6.2 19.8 11.4 L15.4 9.2 Z" fill={darkTrim} />
+          {/* Towering yew warbow */}
+          <path d="M23.2 3.2 Q32.2 17 23.2 31.2" fill="none" stroke="#B45309" strokeWidth="2.4" />
+          <path d="M23.2 3.2 L18.6 17 L23.2 31.2" fill="none" stroke={steelHi} strokeWidth="0.9" />
+          <path d="M17.4 17 H32.2" stroke="#FEF08A" strokeWidth="1.55" />
+          <polygon points="34.2,17 30,15.2 30,18.8" fill={steelHi} />
         </g>
       );
 
     case 'crossbowman':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Armored legs */}
-          <path d="M13 26.5 V32.2 M19 26.5 V32.2" stroke="#475569" strokeWidth="2.6" />
-          {/* Armored surcoat */}
-          <path d="M11 16 H21 L21.8 27 H10.2 Z" fill={primary} />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Armored boots */}
+          <path d="M11.5 25.8 H15 L14.5 32.2 H11 Z" fill={steelDark} />
+          <path d="M17.5 25.8 H21 L21.6 32.2 H18 Z" fill="#334155" />
+          {/* Padded surcoat & steel breastplate */}
+          <path d="M10.4 15.5 H21.6 L22.4 26.8 H9.8 Z" fill={primary} />
+          <path d="M16 15.5 H21.6 L22.4 26.8 H16 Z" fill={darkTrim} opacity="0.4" stroke="none" />
           {/* Steel sallet helm */}
-          <circle cx="16" cy="11.5" r="3.3" fill={skin} />
-          <path d="M11.5 11 C12 7 20.5 7 21 11.5 L19.5 12.2 H12 Z" fill={steel} />
-          {/* Heavy horizontal windlass arbalest */}
-          <path d="M15.5 18.5 H31" stroke={wood} strokeWidth="2.6" />
-          <path d="M25.5 11.5 Q30.5 18.5 25.5 25.5" fill="none" stroke={steel} strokeWidth="2.2" />
-          <path d="M25.5 11.5 L19 18.5 L25.5 25.5" fill="none" stroke="#E2E8F0" strokeWidth="0.95" />
-          <polygon points="33,18.5 29.5,17 29.5,20" fill={gold} />
+          <circle cx="16" cy="11.5" r="3.2" fill={skin} />
+          <path d="M11 11 C11.4 6.6 20.6 6.6 21.4 11.4 L19.8 12.4 H11.6 Z" fill={steel} />
+          <path d="M13.6 8.6 Q16.2 7.5 18.8 8.6" fill="none" stroke={steelHi} strokeWidth="0.85" />
+          {/* Heavy steel windlass arbalest */}
+          <rect x="14.5" y="17.2" width="16.5" height="2.8" rx="0.8" fill={wood} />
+          <path d="M25.5 10.6 Q31.2 18.5 25.5 26.4" fill="none" stroke={steel} strokeWidth="2.4" />
+          <path d="M25.5 10.6 L18.5 18.6 L25.5 26.4" fill="none" stroke={steelHi} strokeWidth="0.9" />
+          <polygon points="34,18.6 30,16.8 30,20.4" fill={gold} />
         </g>
       );
 
     case 'knight':
     case 'gilded_lancer':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Warhorse legs */}
-          <path d="M10.5 26 L8.5 32.5 M14.5 26.5 L14 32.5 M21.5 26.5 L22.5 32.5 M25.5 26 L28 32" stroke="#451A03" strokeWidth="2.4" />
-          {/* Warhorse body with House caparison barding */}
-          <path d="M8.5 21 Q17.5 18.5 26.5 20.5 L27.5 26.5 H8 Z" fill={primary} />
-          <path d="M8.5 25.5 H27.2" stroke={gold} strokeWidth="1.3" />
-          {/* Horse neck & armored head */}
-          <path d="M23 20.5 L26.5 12.5 L31.5 15 L29.5 18.5 L26 18 Z" fill="#78350F" />
-          <path d="M26.2 12.5 L31.5 15 L29.5 16.5 L25.8 14.8 Z" fill={steel} />
-          {/* Mounted Knight torso & plumed helm */}
-          <path d="M14 14.5 H21 L22 21.5 H13.5 Z" fill={steelMid} />
-          <path d="M15.2 14.5 H19.8 V21.5 H15.2 Z" fill={primary} />
-          <path d="M14.8 13.5 V9.5 A2.8 2.8 0 0 1 20.4 9.5 V13.5 Z" fill={steel} />
-          {/* Flowing helmet plume */}
-          <path d="M16 7.5 C12 5 9.5 7 8.5 10.5 C11.5 10 14 9.5 16 9 Z" fill={unitId === 'gilded_lancer' ? gold : primary} />
-          {/* Couched lance with pennant OR raised broadsword */}
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Flowing horse tail */}
+          <path d="M8.5 21.5 C5 22 4 25.5 5.8 28.5 C7.5 27 8.5 25 9 23 Z" fill="#29150A" />
+          {/* Sculpted warhorse legs & hooves */}
+          <path d="M9.6 25.5 H12.4 L10.2 32.5 H7.8 Z" fill="#451A03" />
+          <path d="M13.5 26 H16 L15.2 32.5 H12.8 Z" fill="#29150A" />
+          <path d="M20.8 26 H23.4 L24.6 32.5 H22 Z" fill="#451A03" />
+          <path d="M24.2 25 H26.8 L29.6 31.8 H27 Z" fill="#29150A" />
+          {/* Warhorse draped in scalloped House caparison barding */}
+          <path d="M8 20.5 Q17.5 18 27 20 L28 26.8 L24.5 25.8 L21.5 26.8 L18 25.8 L14.5 26.8 L11 25.8 L7.5 26.8 Z" fill={primary} />
+          <path d="M8.2 25.4 H27.2" stroke={gold} strokeWidth="1.2" />
+          {/* Muscular horse neck, arched mane & steel chamfron */}
+          <path d="M23 20.5 L26.5 11.8 L32.2 14.8 L30.2 18.8 L26 18 Z" fill="#78350F" />
+          <path d="M26.2 11.8 L32.2 14.8 L30.5 16.5 L25.8 14.2 Z" fill={steel} />
+          <path d="M27.2 12.8 L31 14.6" stroke={steelHi} strokeWidth="0.75" />
+          {/* Armored Mounted Knight */}
+          <path d="M13.6 14 H21.4 L22.2 21.5 H13 Z" fill={steel} />
+          <path d="M15.2 14 H20 V21.5 H15.2 Z" fill={primary} />
+          <path d="M14.4 13.2 V8.8 A3.2 3.2 0 0 1 20.8 8.8 V13.2 Z" fill={steel} />
+          <path d="M15.5 10.4 H19.8" stroke={ink} strokeWidth="1.35" />
+          <path d="M15.5 7.4 Q17.6 6.4 19.4 7.4" fill="none" stroke={steelHi} strokeWidth="0.8" />
+          {/* Sweeping knightly helmet plume */}
+          <path d="M16 7 C11.5 4.2 8.2 6.8 7.5 10.6 C10.8 10 13.8 9.2 16 8.8 Z" fill={unitId === 'gilded_lancer' ? gold : primary} />
+          {/* Couched Pennanted Jousting Lance OR Raised Broadsword */}
           {unitId === 'gilded_lancer' ? (
             <g>
-              <path d="M10 18.5 L34.5 9.5" stroke={gold} strokeWidth="2" />
-              <polygon points="27,12.2 31.5,14.5 26,15.5" fill={primary} stroke={gold} strokeWidth="0.8" />
+              <path d="M9.5 18.8 L35 8.8" stroke={gold} strokeWidth="2.1" />
+              <polygon points="27.2,11.8 32.5,14.2 26,15.5" fill={primary} stroke={gold} strokeWidth="0.85" />
             </g>
           ) : (
             <g>
-              <path d="M20.5 16.5 L26 5.5" stroke={steel} strokeWidth="2.1" />
-              <path d="M19.8 13.5 L23.5 15.2" stroke={gold} strokeWidth="1.8" />
+              <polygon points="20.4,16.8 25.8,4.6 27.4,5.4 22,17.4" fill={steelHi} />
+              <path d="M19.5 13.6 L23.5 15.2" stroke={gold} strokeWidth="1.9" />
             </g>
           )}
         </g>
@@ -472,59 +524,72 @@ export function UnitFigureSvg({
 
     case 'dusk_outrider':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Swift dark steed legs */}
-          <path d="M9.5 26.5 L7 32.2 M14 27 L13 32.5 M21.5 27 L23.5 32.2 M25.5 26 L29.5 31" stroke="#1E293B" strokeWidth="2.2" />
-          {/* Lean dark warhorse */}
-          <path d="M8.5 21.5 Q18 19 26.5 21 L27 26.2 H8.5 Z" fill="#334155" />
-          <path d="M23.5 21 L27.5 13 L32.2 15.5 L30 18.5 L26 18 Z" fill="#1E293B" />
-          {/* Billowing House crimson/faction cloak */}
-          <path d="M16 14 L6.5 18.5 L9.5 23 L19 21 Z" fill={primary} />
-          {/* Hooded rider */}
-          <path d="M14.5 14 H20.5 L21 21.5 H14 Z" fill={primary} />
-          <path d="M14.5 13.5 C14.5 8 20.5 8 20.8 13.5 Z" fill={darkTrim} />
-          {/* Twin curved sabers */}
-          <path d="M20 16.5 Q25.5 11.5 28.5 6.5" fill="none" stroke={steel} strokeWidth="2" />
-          <path d="M14 17 Q9.5 12 7.5 7.5" fill="none" stroke={steel} strokeWidth="1.8" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Flowing shadow tail */}
+          <path d="M8.2 21.8 C4.6 22.2 3.8 25.2 5.4 28 C7.2 26.8 8.2 24.8 8.8 23 Z" fill="#0F172A" />
+          {/* Swift dark warhorse legs */}
+          <path d="M9.2 25.8 H11.8 L8.5 32.2 H6.4 Z" fill="#1E293B" />
+          <path d="M13.5 26.2 H15.8 L14.6 32.4 H12.4 Z" fill="#0F172A" />
+          <path d="M21 26.2 H23.5 L25.2 32.2 H22.8 Z" fill="#1E293B" />
+          <path d="M24.5 25.2 H27 L30.6 31.2 H28.2 Z" fill="#0F172A" />
+          {/* Lean raven-dark steed */}
+          <path d="M8 21.2 Q17.5 18.6 26.8 20.6 L27.4 26.4 H8 Z" fill="#334155" />
+          <path d="M23.2 20.6 L27.5 12.2 L32.6 15.2 L30.4 18.6 L26 18 Z" fill="#1E293B" />
+          {/* Billowing crimson/House raider cloak */}
+          <path d="M16 13.8 L5.5 18.6 L9 23.4 L19.2 21 Z" fill={primary} />
+          <path d="M15 14.5 L8.5 20.5 L12.5 22 Z" fill={darkTrim} opacity="0.45" stroke="none" />
+          {/* Hooded raider torso & cowl */}
+          <path d="M14.2 13.8 H20.8 L21.4 21.5 H13.8 Z" fill={primary} />
+          <path d="M14.2 13.2 C14.2 7.4 20.8 7.4 21.2 13.2 L17.6 14 Z" fill={darkTrim} />
+          {/* Twin gleaming curved sabers */}
+          <path d="M20 16.5 Q26.2 11.2 29.2 5.6" fill="none" stroke={steelHi} strokeWidth="2.1" />
+          <path d="M13.8 17 Q8.8 11.8 6.8 6.8" fill="none" stroke={steel} strokeWidth="1.9" />
         </g>
       );
 
     case 'sapper_crew':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* Siege ladder leaning behind */}
-          <path d="M8 31 L14.5 7 M13.5 31 L20 7" stroke={wood} strokeWidth="1.8" />
-          <path d="M9.5 26 H15 M11 21 H16.5 M12.5 16 H18 M14 11 H19.5" stroke="#D97706" strokeWidth="1.3" />
-          {/* Engineer soldier */}
-          <path d="M18.5 26 V32.2 M23.5 26 V32.2" stroke="#334155" strokeWidth="2.4" />
-          <path d="M16.5 16.5 H25.5 L26.2 27 H15.8 Z" fill={primary} />
-          <circle cx="21" cy="12" r="3.2" fill={skin} />
-          <path d="M17 11.5 Q21 7.2 25 11.5 Z" fill="#475569" />
-          {/* Demolition mattock / pickaxe */}
-          <path d="M24 22.5 L31.5 11.5" stroke={wood} strokeWidth="2" />
-          <path d="M27.5 9.5 Q32 10 33.5 14.5" fill="none" stroke={steel} strokeWidth="2.3" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Assault siege ladder leaning behind */}
+          <path d="M7.5 31.5 L14.2 6.5 M13.2 31.5 L19.8 6.5" stroke={wood} strokeWidth="1.9" />
+          <path d="M9 26.2 H14.8 M10.5 21 H16.3 M12 15.8 H17.8 M13.6 10.6 H19.2" stroke="#D97706" strokeWidth="1.35" />
+          {/* Braced engineer boots */}
+          <path d="M17.2 25.8 H20.4 L20 32.2 H16.6 Z" fill="#334155" />
+          <path d="M22.2 25.8 H25.4 L26 32.2 H22.6 Z" fill="#1E293B" />
+          {/* House engineer tunic & leather apron */}
+          <path d="M16 15.8 H26 L26.8 26.8 H15.2 Z" fill={primary} />
+          <path d="M18.2 19.5 H24 V26.8 H18.2 Z" fill={leather} />
+          {/* Iron-capped engineer helm */}
+          <circle cx="21" cy="11.6" r="3.2" fill={skin} />
+          <path d="M16.6 11.2 Q21 6.4 25.4 11.2 Z" fill={steelDark} />
+          <path d="M18.5 8.8 Q21 7.6 23.2 8.8" fill="none" stroke={steel} strokeWidth="0.85" />
+          {/* Heavy demolition mattock */}
+          <path d="M24 22.8 L31.6 10.8" stroke={wood} strokeWidth="2.1" />
+          <path d="M27.2 8.8 Q32.2 9.4 33.8 14.5" fill="none" stroke={steelHi} strokeWidth="2.5" />
         </g>
       );
 
     case 'siege_ram':
       return (
-        <g stroke={ink} strokeWidth="1.05" strokeLinejoin="round" strokeLinecap="round">
-          {/* House pennant mast atop roof */}
-          <path d="M18 3.5 V11" stroke={wood} strokeWidth="1.5" />
-          <polygon points="18,3.8 27,6.2 18,8.8" fill={primary} stroke={darkTrim} strokeWidth="0.9" />
-          {/* Timber A-frame roofed chassis */}
-          <polygon points="6,20.5 18,10 30,20.5" fill="#92400E" />
-          <polygon points="18,10 30,20.5 20.5,20.5" fill="#78350F" />
-          <rect x="7.5" y="20.5" width="21" height="7.5" rx="1" fill="#B45309" />
-          <rect x="7.5" y="20.5" width="21" height="2.2" fill={primary} />
-          {/* Heavy iron-capped battering ram beam */}
-          <rect x="4" y="22.5" width="25.5" height="3.8" rx="1" fill="#451A03" />
-          <polygon points="29.5,21.8 34,24.4 29.5,27" fill={steel} />
-          {/* Heavy spoked wheels */}
-          <circle cx="11.5" cy="29.5" r="3.6" fill="#78350F" stroke={ink} strokeWidth="1.2" />
-          <circle cx="11.5" cy="29.5" r="1.2" fill={steel} stroke="none" />
-          <circle cx="24.5" cy="29.5" r="3.6" fill="#78350F" stroke={ink} strokeWidth="1.2" />
-          <circle cx="24.5" cy="29.5" r="1.2" fill={steel} stroke="none" />
+        <g stroke={ink} strokeWidth="0.95" strokeLinejoin="round" strokeLinecap="round">
+          {/* Streaming House pennant atop roof */}
+          <path d="M18 2.8 V10.5" stroke={wood} strokeWidth="1.6" />
+          <polygon points="18,3 28.5,5.8 18,8.6" fill={primary} stroke={darkTrim} strokeWidth="0.9" />
+          {/* Reinforced iron-banded timber A-frame roof */}
+          <polygon points="5.2,20.5 18,9.5 30.8,20.5" fill="#92400E" />
+          <polygon points="18,9.5 30.8,20.5 20.5,20.5" fill="#78350F" />
+          <path d="M10.5 16 L18 9.5 L25.5 16" fill="none" stroke={steelDark} strokeWidth="1.5" />
+          <rect x="7.2" y="20.5" width="21.6" height="7.5" rx="1" fill="#B45309" />
+          <rect x="7.2" y="20.5" width="21.6" height="2.4" fill={primary} />
+          {/* Heavy hanging iron-capped battering ram beam */}
+          <rect x="3.5" y="22.5" width="26" height="4" rx="1" fill="#451A03" />
+          <polygon points="29.5,21.6 34.8,24.5 29.5,27.4" fill={steel} />
+          <path d="M30.2 22.8 L33.5 24.5" stroke={steelHi} strokeWidth="0.9" />
+          {/* Heavy iron-rimmed spoked wheels */}
+          <circle cx="11.5" cy="29.8" r="3.8" fill="#78350F" stroke={steelDark} strokeWidth="1.35" />
+          <circle cx="11.5" cy="29.8" r="1.2" fill={steelHi} stroke={ink} strokeWidth="0.6" />
+          <circle cx="24.5" cy="29.8" r="3.8" fill="#78350F" stroke={steelDark} strokeWidth="1.35" />
+          <circle cx="24.5" cy="29.8" r="1.2" fill={steelHi} stroke={ink} strokeWidth="0.6" />
         </g>
       );
   }

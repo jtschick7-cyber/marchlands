@@ -65,91 +65,136 @@ function tileHash(x: number, y: number): number {
   return ((x * 73 + y * 137 + x * y * 19) & 0x7fffffff) % 100;
 }
 
+interface WorldRiverNetwork {
+  readonly mainPath: string;
+  readonly shimmerPath: string;
+  readonly poolCenters: ReadonlyArray<{ x: number; y: number }>;
+  readonly wideCorners: ReadonlyArray<{ x: number; y: number }>;
+  readonly reedSpots: ReadonlyArray<{ x: number; y: number; flip: boolean }>;
+}
+
 /**
- * Builds smooth organic SVG river channel paths for any N/S/E/W connection topology
- * so rivers flow naturally around bends instead of stiff 90-degree pipes.
+ * Builds ONE unified world-space SVG river network across all explored river tiles.
+ * Every straight run and bend enters/exits tile midpoints with perpendicular tangents
+ * (C1 continuity), eliminating tile-seam caps, walls, and kinks completely.
  */
-function buildRiverPaths(
-  mask: { n: boolean; s: boolean; e: boolean; w: boolean },
-  h: number,
-): { readonly main: string; readonly shimmer: string; readonly hasPool: boolean } {
-  const { n, s, e, w } = mask;
-  const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
-  const bend = (h % 2 === 0 ? 1 : -1) * (2.5 + (h % 3));
+function buildWorldRiverNetwork(
+  allTiles: Record<CoordKey, TileState>,
+  exploredRiverTiles: readonly TileState[],
+): WorldRiverNetwork {
+  const mainSegs: string[] = [];
+  const shimmerSegs: string[] = [];
+  const poolCenters: Array<{ x: number; y: number }> = [];
+  const wideCorners: Array<{ x: number; y: number }> = [];
+  const reedSpots: Array<{ x: number; y: number; flip: boolean }> = [];
 
-  if (count === 0) {
-    return {
-      main: 'M14 25 Q24 19 34 25',
-      shimmer: 'M18 24 Q24 22 30 24',
-      hasPool: true,
-    };
+  for (const tile of exploredRiverTiles) {
+    const ox = tile.x * TILE_SIZE;
+    const oy = tile.y * TILE_SIZE;
+    const cx = ox + 24;
+    const cy = oy + 24;
+    const h = tileHash(tile.x, tile.y);
+    const sway = (h % 2 === 0 ? 1 : -1) * (2.6 + (h % 3) * 0.8);
+
+    const n = tile.y === 0 || allTiles[`${tile.x},${tile.y - 1}`]?.terrain === 'river';
+    const s = tile.y === GRID_SIZE - 1 || allTiles[`${tile.x},${tile.y + 1}`]?.terrain === 'river';
+    const w = tile.x === 0 || allTiles[`${tile.x - 1},${tile.y}`]?.terrain === 'river';
+    const e = tile.x === GRID_SIZE - 1 || allTiles[`${tile.x + 1},${tile.y}`]?.terrain === 'river';
+
+    // Fill 2x2 river cluster corners smoothly so wide bends become natural river basins
+    if (n && e && allTiles[`${tile.x + 1},${tile.y - 1}`]?.terrain === 'river') {
+      wideCorners.push({ x: ox + 48, y: oy });
+    }
+
+    const ny = tile.y === 0 ? oy - 14 : oy;
+    const sy = tile.y === GRID_SIZE - 1 ? oy + 62 : oy + 48;
+    const wx = tile.x === 0 ? ox - 14 : ox;
+    const ex = tile.x === GRID_SIZE - 1 ? ox + 62 : ox + 48;
+
+    const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
+
+    if (count === 0) {
+      mainSegs.push(`M${ox + 15},${cy} Q${cx},${cy - 4} ${ox + 33},${cy}`);
+      shimmerSegs.push(`M${ox + 17},${cy} Q${cx},${cy - 2} ${ox + 31},${cy}`);
+      poolCenters.push({ x: cx, y: cy });
+    } else if (count === 1) {
+      if (n) {
+        mainSegs.push(`M${cx},${ny} C${cx},${oy + 12} ${cx + sway},${oy + 18} ${cx},${cy}`);
+        shimmerSegs.push(`M${cx},${oy + 4} L${cx},${cy - 2}`);
+      } else if (s) {
+        mainSegs.push(`M${cx},${sy} C${cx},${oy + 36} ${cx + sway},${oy + 30} ${cx},${cy}`);
+        shimmerSegs.push(`M${cx},${oy + 44} L${cx},${cy + 2}`);
+      } else if (w) {
+        mainSegs.push(`M${wx},${cy} C${ox + 12},${cy} ${ox + 18},${cy + sway} ${cx},${cy}`);
+        shimmerSegs.push(`M${ox + 4},${cy} L${cx - 2},${cy}`);
+      } else {
+        mainSegs.push(`M${ex},${cy} C${ox + 36},${cy} ${ox + 30},${cy + sway} ${cx},${cy}`);
+        shimmerSegs.push(`M${ox + 44},${cy} L${cx + 2},${cy}`);
+      }
+      poolCenters.push({ x: cx, y: cy });
+    } else if (count === 2) {
+      if (n && s) {
+        // C1-continuous vertical meander (perpendicular entry & exit tangents)
+        mainSegs.push(
+          `M${cx},${ny} C${cx},${oy + 11} ${cx + sway},${oy + 17} ${cx},${cy} C${cx - sway},${oy + 31} ${cx},${oy + 37} ${cx},${sy}`,
+        );
+        shimmerSegs.push(
+          `M${cx},${oy + 5} C${cx + sway * 0.5},${oy + 17} ${cx - sway * 0.5},${oy + 31} ${cx},${oy + 43}`,
+        );
+      } else if (w && e) {
+        // C1-continuous horizontal meander
+        mainSegs.push(
+          `M${wx},${cy} C${ox + 11},${cy} ${ox + 17},${cy + sway} ${cx},${cy} C${ox + 31},${cy - sway} ${ox + 37},${cy} ${ex},${cy}`,
+        );
+        shimmerSegs.push(
+          `M${ox + 5},${cy} C${ox + 17},${cy + sway * 0.5} ${ox + 31},${cy - sway * 0.5} ${ox + 43},${cy}`,
+        );
+      } else if (n && e) {
+        // Sweeping quarter-bend (vertical tangent at N, horizontal tangent at E)
+        mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${ex},${cy}`);
+        shimmerSegs.push(`M${cx + 1},${oy + 6} Q${cx + 3},${cy - 3} ${ox + 42},${cy - 1}`);
+      } else if (n && w) {
+        mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${wx},${cy}`);
+        shimmerSegs.push(`M${cx - 1},${oy + 6} Q${cx - 3},${cy - 3} ${ox + 6},${cy - 1}`);
+      } else if (s && e) {
+        mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${ex},${cy}`);
+        shimmerSegs.push(`M${cx + 1},${oy + 42} Q${cx + 3},${cy + 3} ${ox + 42},${cy + 1}`);
+      } else {
+        mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${wx},${cy}`);
+        shimmerSegs.push(`M${cx - 1},${oy + 42} Q${cx - 3},${cy + 3} ${ox + 6},${cy + 1}`);
+      }
+    } else {
+      // 3-way T-junction or 4-way confluence: smooth curved arms meeting seamlessly
+      if (n && s) {
+        mainSegs.push(`M${cx},${ny} L${cx},${sy}`);
+        shimmerSegs.push(`M${cx},${oy + 5} L${cx},${oy + 43}`);
+      }
+      if (w && e) {
+        mainSegs.push(`M${wx},${cy} L${ex},${cy}`);
+        shimmerSegs.push(`M${ox + 5},${cy} L${ox + 43},${cy}`);
+      }
+      if (n && e) mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${ex},${cy}`);
+      if (n && w) mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${wx},${cy}`);
+      if (s && e) mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${ex},${cy}`);
+      if (s && w) mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${wx},${cy}`);
+      poolCenters.push({ x: cx, y: cy });
+    }
+
+    // Add tiny riverbank reed tufts on dry corners
+    if (!n && !w && h % 2 === 0) {
+      reedSpots.push({ x: ox + 7, y: oy + 10, flip: false });
+    }
+    if (!s && !e && h % 2 === 1) {
+      reedSpots.push({ x: ox + 40, y: oy + 40, flip: true });
+    }
   }
 
-  if (count === 1) {
-    if (n) return { main: `M24 0 Q${24 + bend} 14 24 27`, shimmer: 'M24 5 V19', hasPool: true };
-    if (s) return { main: `M24 48 Q${24 + bend} 34 24 21`, shimmer: 'M24 29 V43', hasPool: true };
-    if (w) return { main: `M0 24 Q14 ${24 + bend} 27 24`, shimmer: 'M5 24 H19', hasPool: true };
-    return { main: `M48 24 Q34 ${24 + bend} 21 24`, shimmer: 'M29 24 H43', hasPool: true };
-  }
-
-  if (count === 2) {
-    // Straight meanders
-    if (n && s) {
-      return {
-        main: `M24 0 C${24 - bend} 16 ${24 + bend} 32 24 48`,
-        shimmer: `M${24 - bend * 0.4} 9 C${24 - bend * 0.7} 20 ${24 + bend * 0.7} 28 ${24 + bend * 0.3} 39`,
-        hasPool: false,
-      };
-    }
-    if (w && e) {
-      return {
-        main: `M0 24 C16 ${24 - bend} 32 ${24 + bend} 48 24`,
-        shimmer: `M9 ${24 - bend * 0.4} C20 ${24 - bend * 0.7} 28 ${24 + bend * 0.7} 39 ${24 + bend * 0.3}`,
-        hasPool: false,
-      };
-    }
-    // Sweeping smooth river bends (no hard 90-deg corners)
-    if (n && e) return { main: 'M24 0 Q24 24 48 24', shimmer: 'M26 7 Q28 21 41 22', hasPool: false };
-    if (n && w) return { main: 'M24 0 Q24 24 0 24', shimmer: 'M22 7 Q20 21 7 22', hasPool: false };
-    if (s && e) return { main: 'M24 48 Q24 24 48 24', shimmer: 'M26 41 Q28 27 41 26', hasPool: false };
-    return { main: 'M24 48 Q24 24 0 24', shimmer: 'M22 41 Q20 27 7 26', hasPool: false };
-  }
-
-  if (count === 3) {
-    // Smooth main trunk + gracefully curved tributary joining the confluence
-    if (!w) {
-      return {
-        main: 'M24 0 Q22 24 24 48 M24 24 Q34 24 48 24',
-        shimmer: 'M24 7 V41 M30 24 H42',
-        hasPool: true,
-      };
-    }
-    if (!e) {
-      return {
-        main: 'M24 0 Q26 24 24 48 M24 24 Q14 24 0 24',
-        shimmer: 'M24 7 V41 M6 24 H18',
-        hasPool: true,
-      };
-    }
-    if (!n) {
-      return {
-        main: 'M0 24 Q24 26 48 24 M24 24 Q24 34 24 48',
-        shimmer: 'M7 24 H41 M24 30 V42',
-        hasPool: true,
-      };
-    }
-    return {
-      main: 'M0 24 Q24 22 48 24 M24 24 Q24 14 24 0',
-      shimmer: 'M7 24 H41 M24 6 V18',
-      hasPool: true,
-    };
-  }
-
-  // 4-way river confluence
   return {
-    main: 'M24 0 V48 M0 24 H48',
-    shimmer: 'M24 7 V41 M7 24 H41',
-    hasPool: true,
+    mainPath: mainSegs.join(' '),
+    shimmerPath: shimmerSegs.join(' '),
+    poolCenters,
+    wideCorners,
+    reedSpots,
   };
 }
 
@@ -226,11 +271,9 @@ function DeciduousTree({
 function TerrainTileSvg({
   tile,
   season,
-  riverMask,
 }: {
   readonly tile: TileState;
   readonly season: Season;
-  readonly riverMask: { n: boolean; s: boolean; e: boolean; w: boolean };
 }) {
   const ox = tile.x * TILE_SIZE;
   const oy = tile.y * TILE_SIZE;
@@ -273,8 +316,6 @@ function TerrainTileSvg({
   const oakLight =
     season === 'autumn' ? '#E59A38' : season === 'winter' ? '#CBD5E1' : '#74A35B';
 
-  const riverPaths = tile.terrain === 'river' ? buildRiverPaths(riverMask, h) : null;
-
   return (
     <g transform={`translate(${ox},${oy})`}>
       <rect
@@ -282,7 +323,7 @@ function TerrainTileSvg({
         height={TILE_SIZE}
         fill={fillUrl}
         stroke="#1E293B"
-        strokeOpacity="0.14"
+        strokeOpacity={tile.terrain === 'river' ? '0.07' : '0.14'}
         strokeWidth="0.55"
       />
 
@@ -412,73 +453,6 @@ function TerrainTileSvg({
           <polygon points="18,41 32,14 45,41" fill="#5B616E" />
           <polygon points="32,14 45,41 34,41" fill="#373B44" />
           <polygon points="28.6,21 32,14 35.4,21 33.4,19.5 32,21.5 30.3,19.8" fill="#E2E8F0" />
-        </g>
-      )}
-
-      {/* Organic Curved River Spline with Verdant Verge, Pebble Shore, Water Depths & Flow Streaks */}
-      {tile.terrain === 'river' && riverPaths && (
-        <g pointerEvents="none">
-          {/* 1. Damp verdant riverbank verge */}
-          <path
-            d={riverPaths.main}
-            fill="none"
-            stroke={season === 'winter' ? '#B0C4D4' : '#9EB18A'}
-            strokeWidth="27"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity="0.6"
-          />
-          {/* 2. Warm sand/pebble shore bank */}
-          <path
-            d={riverPaths.main}
-            fill="none"
-            stroke={season === 'winter' ? '#CBD5E1' : '#C9B996'}
-            strokeWidth="22"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* 3. Shallow coastal turquoise edge */}
-          <path
-            d={riverPaths.main}
-            fill="none"
-            stroke={season === 'winter' ? '#7FB3D5' : '#4E98BA'}
-            strokeWidth="17.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* 4. Rich mid-channel water */}
-          <path
-            d={riverPaths.main}
-            fill="none"
-            stroke={season === 'winter' ? '#568BB0' : '#2E7096'}
-            strokeWidth="12"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* Confluence / spring pool smoothing */}
-          {riverPaths.hasPool && (
-            <>
-              <circle cx="24" cy="24" r="9.5" fill={season === 'winter' ? '#7FB3D5' : '#4E98BA'} />
-              <circle cx="24" cy="24" r="6.5" fill={season === 'winter' ? '#568BB0' : '#2E7096'} />
-            </>
-          )}
-          {/* 5. Directional flowing current specular highlights */}
-          <path
-            className="river-shimmer"
-            d={riverPaths.shimmer}
-            fill="none"
-            stroke={season === 'winter' ? '#E0F2FE' : '#BAE6FD'}
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeDasharray="4.5 4.5"
-          />
-          {/* Tiny riverbank reed tufts along opposite shore */}
-          {!riverMask.n && !riverMask.w && (
-            <path d="M8 10 L7 6.5 M8 10 L9.5 7 M11 9.5 L11.5 6.5" stroke="#4D6B43" strokeWidth="0.9" strokeLinecap="round" opacity="0.7" />
-          )}
-          {!riverMask.s && !riverMask.e && (
-            <path d="M39 40 L38 36.5 M39 40 L40.5 37 M42 39.5 L42.5 36.5" stroke="#4D6B43" strokeWidth="0.9" strokeLinecap="round" opacity="0.7" />
-          )}
         </g>
       )}
 
@@ -669,23 +643,24 @@ function UnitTokenSvg({
       {isViewerUnit && isActionable && (
         <ellipse
           className="unit-ready-ring"
-          cx="25"
-          cy="34"
-          rx="16.5"
-          ry="6.6"
+          cx="24.5"
+          cy="34.2"
+          rx="16.2"
+          ry="6.5"
           fill="none"
           stroke="#FDE047"
-          strokeWidth="1.7"
+          strokeWidth="1.75"
         />
       )}
 
-      {/* Grounded Shadow & Tabletop Miniature Pedestal Disc */}
-      <ellipse cx="25" cy="35.6" rx="14.2" ry="5" fill="#020617" opacity="0.45" />
+      {/* Grounded Shadow & 3D-Beveled Tabletop Miniature Base */}
+      <ellipse cx="24.5" cy="36.2" rx="14.2" ry="5" fill="#020617" opacity="0.48" />
+      <ellipse cx="24.5" cy="34.9" rx="13.6" ry="4.7" fill="#0F172A" />
       <ellipse
-        cx="25"
-        cy="34"
-        rx="13.5"
-        ry="4.8"
+        cx="24.5"
+        cy="33.5"
+        rx="13.2"
+        ry="4.5"
         fill={c.primary}
         stroke={
           unit.isFortified
@@ -694,37 +669,38 @@ function UnitTokenSvg({
               ? '#64748B'
               : '#FEF9C3'
         }
-        strokeWidth="1.8"
+        strokeWidth="1.65"
       />
       <ellipse
-        cx="25"
-        cy="33.4"
-        rx="10.2"
-        ry="3.1"
+        cx="24.5"
+        cy="33.1"
+        rx="9.8"
+        ry="2.8"
         fill="none"
         stroke="#FFFFFF"
-        strokeOpacity="0.28"
-        strokeWidth="0.9"
+        strokeOpacity="0.32"
+        strokeWidth="0.85"
       />
 
-      {/* Illustrated Miniature Soldier / Rider / Siege Figure */}
-      <g transform="translate(7, 2)" filter="url(#token-shadow)">
+      {/* Sharpened Miniature Soldier / Rider / Siege Figure */}
+      <g transform="translate(5.5, 0.5) scale(1.06)" filter="url(#token-shadow)">
         <UnitFigureSvg unitId={unit.typeId} houseId={unit.houseId} />
       </g>
 
       {/* Fortified Entrenchment Stakes along Front Edge */}
       {unit.isFortified && (
-        <g stroke="#451A03" strokeWidth="0.85" fill="#B45309">
-          <polygon points="12,37 14,32.5 15.8,37" />
-          <polygon points="18,38.2 20,33.2 21.8,38.2" />
-          <polygon points="28.2,38.2 30,33.2 32,38.2" />
-          <polygon points="34.2,37 36,32.5 38,37" />
+        <g stroke="#29150A" strokeWidth="0.85" fill="#B45309">
+          <polygon points="11.5,37.2 13.5,32.6 15.4,37.2" />
+          <polygon points="17.5,38.4 19.5,33.4 21.4,38.4" />
+          <polygon points="27.6,38.4 29.5,33.4 31.5,38.4" />
+          <polygon points="33.6,37.2 35.5,32.6 37.5,37.2" />
         </g>
       )}
 
-      {/* Unit HP Bar */}
-      <rect x="11" y="39.5" width="28" height="4.8" rx="2" fill="#0F172A" opacity="0.95" />
-      <rect x="11.8" y="40.3" width={26.4 * hpRatio} height="3.2" rx="1.2" fill={hpColor} />
+      {/* Crisp Specular Unit HP Bar */}
+      <rect x="10.5" y="39.5" width="28" height="5" rx="2.2" fill="#0B1120" stroke="#334155" strokeWidth="0.6" />
+      <rect x="11.4" y="40.4" width={26.2 * hpRatio} height="3.2" rx="1.2" fill={hpColor} />
+      <rect x="11.4" y="40.4" width={26.2 * hpRatio} height="1.1" rx="0.6" fill="#FFFFFF" opacity="0.3" />
 
       {/* Veterancy Chevrons (Top-Left) */}
       {rank > 0 && (
@@ -820,6 +796,16 @@ export function MapBoard({
   const season = getSeason(state.turnNumber);
   const fogMap = useMemo(() => state.fog[viewerHouseId] ?? {}, [state.fog, viewerHouseId]);
   const tilesArray = useMemo(() => Object.values(state.tiles), [state.tiles]);
+
+  const exploredTiles = useMemo(
+    () => tilesArray.filter((t) => (fogMap[t.key] ?? 'unexplored') !== 'unexplored'),
+    [tilesArray, fogMap],
+  );
+
+  const riverNetwork = useMemo(() => {
+    const exploredRivers = exploredTiles.filter((t) => t.terrain === 'river');
+    return buildWorldRiverNetwork(state.tiles, exploredRivers);
+  }, [state.tiles, exploredTiles]);
 
   const keepByTile = useMemo(() => {
     const m = new Map<CoordKey, KeepState>();
@@ -1034,48 +1020,168 @@ export function MapBoard({
 
             {/* Soft Drop Shadows */}
             <filter id="token-shadow" x="-25%" y="-25%" width="150%" height="150%">
-              <feDropShadow dx="0" dy="1.8" stdDeviation="1.4" floodColor="#020617" floodOpacity="0.55" />
+              <feDropShadow dx="0" dy="1.6" stdDeviation="1.15" floodColor="#020617" floodOpacity="0.62" />
             </filter>
             <filter id="keep-shadow" x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="2" stdDeviation="1.6" floodColor="#020617" floodOpacity="0.45" />
             </filter>
+
+            {/* Fog-Honest Clip Mask for Unified Multi-Pass River Layer */}
+            <clipPath id="explored-tiles-clip">
+              {exploredTiles.map((tile) => (
+                <rect
+                  key={`clip_${tile.key}`}
+                  x={tile.x * TILE_SIZE}
+                  y={tile.y * TILE_SIZE}
+                  width={TILE_SIZE}
+                  height={TILE_SIZE}
+                />
+              ))}
+            </clipPath>
           </defs>
 
           {/* Outer Cartographic Frame */}
           <rect width={BOARD_PX} height={BOARD_PX} fill="url(#fog-pattern)" />
 
-          {/* Layer 1: Base Terrain & Owned Territory Wash */}
-          {tilesArray.map((tile) => {
-            const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
-            if (fog === 'unexplored') return null;
-            const ox = tile.x * TILE_SIZE;
-            const oy = tile.y * TILE_SIZE;
-            const ownerColor = tile.ownerHouseId ? HOUSES[tile.ownerHouseId].colors.primary : null;
-            const riverMask =
-              tile.terrain === 'river'
-                ? {
-                    n: state.tiles[`${tile.x},${tile.y - 1}`]?.terrain === 'river',
-                    s: state.tiles[`${tile.x},${tile.y + 1}`]?.terrain === 'river',
-                    e: state.tiles[`${tile.x + 1},${tile.y}`]?.terrain === 'river',
-                    w: state.tiles[`${tile.x - 1},${tile.y}`]?.terrain === 'river',
-                  }
-                : { n: false, s: false, e: false, w: false };
+          {/* Layer 1: Base Terrain Tiles (Plains, Forest, Hills, Mountain, Meadow under Rivers) */}
+          {exploredTiles.map((tile) => (
+            <TerrainTileSvg key={`t_${tile.key}`} tile={tile} season={season} />
+          ))}
 
+          {/* Layer 1b: Unified 6-Pass Seamless River Network (Zero Tile-Boundary Caps or Seams) */}
+          {riverNetwork.mainPath.length > 0 && (
+            <g clipPath="url(#explored-tiles-clip)" pointerEvents="none">
+              {/* Pass 1: Lush verdant riverbank meadow verge */}
+              <path
+                d={riverNetwork.mainPath}
+                fill="none"
+                stroke={season === 'winter' ? '#A4B9C9' : '#96AC82'}
+                strokeWidth="31"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.55"
+              />
+              {/* Pass 2: Warm pebble-sand shore bank */}
+              <path
+                d={riverNetwork.mainPath}
+                fill="none"
+                stroke={season === 'winter' ? '#CBD5E1' : '#C9B996'}
+                strokeWidth="25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {riverNetwork.wideCorners.map((pt, i) => (
+                <circle
+                  key={`wc_b_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="14"
+                  fill={season === 'winter' ? '#CBD5E1' : '#C9B996'}
+                />
+              ))}
+              {/* Pass 3: Crisp cartographic shoreline contour */}
+              <path
+                d={riverNetwork.mainPath}
+                fill="none"
+                stroke={season === 'winter' ? '#4B7B9C' : '#265E80'}
+                strokeWidth="20.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Pass 4: Continuous shallow coastal turquoise water */}
+              <path
+                d={riverNetwork.mainPath}
+                fill="none"
+                stroke={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
+                strokeWidth="18.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {riverNetwork.poolCenters.map((pt, i) => (
+                <circle
+                  key={`pl_s_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="9.8"
+                  fill={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
+                />
+              ))}
+              {riverNetwork.wideCorners.map((pt, i) => (
+                <circle
+                  key={`wc_s_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="10.5"
+                  fill={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
+                />
+              ))}
+              {/* Pass 5: Rich unbroken deep river-blue center current */}
+              <path
+                d={riverNetwork.mainPath}
+                fill="none"
+                stroke={season === 'winter' ? '#548BB0' : '#2A6F97'}
+                strokeWidth="11.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {riverNetwork.poolCenters.map((pt, i) => (
+                <circle
+                  key={`pl_d_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="6.4"
+                  fill={season === 'winter' ? '#548BB0' : '#2A6F97'}
+                />
+              ))}
+              {riverNetwork.wideCorners.map((pt, i) => (
+                <circle
+                  key={`wc_d_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="6.5"
+                  fill={season === 'winter' ? '#548BB0' : '#2A6F97'}
+                />
+              ))}
+              {/* Pass 6: Directional animated current highlights & shore reeds */}
+              <path
+                className="river-shimmer"
+                d={riverNetwork.shimmerPath}
+                fill="none"
+                stroke={season === 'winter' ? '#E0F2FE' : '#BAE6FD'}
+                strokeWidth="1.35"
+                strokeLinecap="round"
+                strokeDasharray="6 7"
+              />
+              {riverNetwork.reedSpots.map((r, i) => (
+                <g
+                  key={`reed_${i}`}
+                  transform={`translate(${r.x},${r.y})`}
+                  stroke={season === 'winter' ? '#64748B' : '#4B6B41'}
+                  strokeWidth="0.95"
+                  strokeLinecap="round"
+                  opacity="0.72"
+                >
+                  <path d="M0 0 L-1.2 -3.6 M0 0 L1.2 -3.2 M3 -0.4 L3.6 -3.5" />
+                  <circle cx="-1.2" cy="-3.6" r="0.65" fill="#78350F" stroke="none" />
+                </g>
+              ))}
+            </g>
+          )}
+
+          {/* Layer 1c: Owned Territory Wash */}
+          {exploredTiles.map((tile) => {
+            if (!tile.ownerHouseId) return null;
             return (
-              <g key={`t_${tile.key}`}>
-                <TerrainTileSvg tile={tile} season={season} riverMask={riverMask} />
-                {ownerColor && (
-                  <rect
-                    x={ox}
-                    y={oy}
-                    width={TILE_SIZE}
-                    height={TILE_SIZE}
-                    fill={ownerColor}
-                    fillOpacity="0.13"
-                    pointerEvents="none"
-                  />
-                )}
-              </g>
+              <rect
+                key={`own_${tile.key}`}
+                x={tile.x * TILE_SIZE}
+                y={tile.y * TILE_SIZE}
+                width={TILE_SIZE}
+                height={TILE_SIZE}
+                fill={HOUSES[tile.ownerHouseId].colors.primary}
+                fillOpacity="0.13"
+                pointerEvents="none"
+              />
             );
           })}
 
