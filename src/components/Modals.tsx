@@ -559,6 +559,8 @@ export function PrimerModal({ onClose }: { readonly onClose: () => void }) {
 
 export function MenuDrawer({
   saveSlots,
+  showZoomButtons,
+  onToggleZoomButtons,
   onClose,
   onSaveSlot,
   onLoadSlot,
@@ -568,6 +570,8 @@ export function MenuDrawer({
   onReturnToTitle,
 }: {
   readonly saveSlots: readonly SaveMetadata[];
+  readonly showZoomButtons: boolean;
+  readonly onToggleZoomButtons: () => void;
   readonly onClose: () => void;
   readonly onSaveSlot: (slotId: string) => void;
   readonly onLoadSlot: (slotId: string) => void;
@@ -581,17 +585,36 @@ export function MenuDrawer({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex items-end justify-center">
-      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-t-2xl bg-[#1E293B] border-t-2 border-slate-500 p-4 safe-bottom space-y-3 text-slate-100">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-t-2xl bg-[#1E2128] border-t-2 border-[#383B44] p-4 safe-bottom space-y-3 text-stone-100">
         <div className="flex items-center justify-between">
           <h2 className="font-serif-march text-lg font-bold">Campaign Menu</h2>
           <button
             type="button"
             onClick={onClose}
-            className="touch-target px-3 rounded-lg bg-slate-800 border border-slate-600 text-xs font-bold"
+            className="touch-target px-3 rounded-lg bg-[#252932] border border-[#383B44] text-xs font-bold"
           >
             Close
           </button>
         </div>
+
+        {/* Accessibility Toggle: Floating Map Zoom Buttons */}
+        <button
+          type="button"
+          onClick={onToggleZoomButtons}
+          aria-pressed={showZoomButtons}
+          className="touch-target w-full px-3 py-2 rounded-xl bg-[#16181D] border border-[#383B44] flex items-center justify-between text-xs"
+        >
+          <span className="font-semibold text-stone-200">Show Map Zoom Buttons (+ / −)</span>
+          <span
+            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+              showZoomButtons
+                ? 'bg-[#2C2820] border border-[#D4AF5A]/80 text-[#F6E7C1]'
+                : 'bg-[#252932] border border-[#383B44] text-stone-400'
+            }`}
+          >
+            {showZoomButtons ? 'On' : 'Off'}
+          </span>
+        </button>
 
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -1046,7 +1069,8 @@ export function RealmLedgerDrawer({
                             {h.isEliminated ? ' • Fallen' : ''}
                           </div>
                           <div className="text-[10px] text-slate-400">
-                            {sup.ownedKeeps} Keeps • {h.decreeIds.length} Decrees • {h.favor} Favor
+                            {sup.ownedKeeps} {sup.ownedKeeps === 1 ? 'Keep' : 'Keeps'} • {h.decreeIds.length}{' '}
+                            {h.decreeIds.length === 1 ? 'Decree' : 'Decrees'} • {h.favor} Favor
                           </div>
                         </div>
                       </div>

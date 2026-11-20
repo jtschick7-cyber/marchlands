@@ -227,7 +227,7 @@ export function BottomDrawer({
     <section className="relative z-30 w-full surface-iron-up border-t border-amber-500/25 backdrop-blur-md safe-bottom px-2 pt-2">
       {/* Combat Preview Overlay Card */}
       {attackPreviewTarget && isOwnUnit && (
-        <div className="mb-2 p-2.5 rounded-xl bg-[#0B1120] border border-red-500/75 shadow-xl">
+        <div className="mb-2 p-2.5 rounded-xl bg-[#16181D] border border-red-500/75 shadow-xl">
           <div className="flex items-center justify-between gap-2">
             <div>
               <p className="font-serif-march text-xs font-bold text-red-300 uppercase tracking-wide">
@@ -463,8 +463,8 @@ export function BottomDrawer({
 
             return (
               <div className="space-y-1.5">
-                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-700/90 flex items-center gap-2">
-                  <div className="shrink-0 w-10 h-10 rounded-lg bg-slate-900/90 border border-slate-700 flex items-center justify-center">
+                <div className="p-2 rounded-xl bg-[#16181D]/85 border border-[#383B44] flex items-center gap-2">
+                  <div className="shrink-0 w-10 h-10 rounded-lg bg-[#EAE3D2]/92 border border-[#C7BEA8]/65 shadow-inner flex items-center justify-center">
                     <svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true">
                       <UnitFigureSvg unitId={unitOnTile.typeId} houseId={unitOnTile.houseId} />
                     </svg>
@@ -607,7 +607,7 @@ export function BottomDrawer({
           {/* Own Keep Overview, Growth Bar, Field Repair & Train Strip */}
           {showKeepPanel && keepOnTile && keepInfo && (
             <div className="space-y-1.5">
-              <div className="p-2 rounded-xl bg-slate-950/80 border border-amber-500/35 space-y-1.5">
+              <div className="p-2 rounded-xl bg-[#16181D]/85 border border-amber-500/30 space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
                   <span className="font-serif-march font-bold text-amber-200 truncate">
                     {keepOnTile.name} • Tier {keepOnTile.tier}
@@ -673,11 +673,13 @@ export function BottomDrawer({
                       type="button"
                       disabled={!ok || !canCommand}
                       onClick={() => onTrainUnit(keepOnTile.id, uid)}
-                      className="touch-target shrink-0 px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-600 hover:border-amber-400/70 disabled:opacity-40 text-left active:bg-slate-700 flex items-center gap-1.5"
+                      className="touch-target shrink-0 px-2 py-1.5 rounded-xl bg-[#1E2128] border border-[#383B44] hover:border-[#D4AF5A]/70 disabled:opacity-40 text-left active:bg-[#282C35] flex items-center gap-2"
                     >
-                      <svg width="28" height="28" viewBox="0 0 36 36" aria-hidden="true" className="shrink-0">
-                        <UnitFigureSvg unitId={uid} houseId={viewerHouseId} />
-                      </svg>
+                      <span className="w-9 h-9 rounded-lg bg-[#EAE3D2]/92 border border-[#C7BEA8]/65 shadow-inner flex items-center justify-center shrink-0">
+                        <svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true" className="shrink-0">
+                          <UnitFigureSvg unitId={uid} houseId={viewerHouseId} />
+                        </svg>
+                      </span>
                       <div>
                         <div className="text-xs font-bold text-slate-100">{def.name}</div>
                         <div className="text-[10px] text-amber-300 tabular-nums">

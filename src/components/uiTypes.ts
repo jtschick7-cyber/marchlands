@@ -25,6 +25,7 @@ export interface UiInteractionState {
   readonly skippedUnitIds: readonly string[];
   readonly keepInspectMode: 'unit' | 'keep';
   readonly showYieldOverlay: boolean;
+  readonly showZoomButtons: boolean;
   readonly showRecapModal: boolean;
   readonly showCrownDrawer: boolean;
   readonly showRealmDrawer: boolean;
@@ -49,6 +50,7 @@ export const INITIAL_UI_STATE: UiInteractionState = {
   skippedUnitIds: [],
   keepInspectMode: 'unit',
   showYieldOverlay: true,
+  showZoomButtons: false,
   showRecapModal: false,
   showCrownDrawer: false,
   showRealmDrawer: false,

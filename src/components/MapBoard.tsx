@@ -23,7 +23,13 @@ import type {
   TileState,
   UnitState,
 } from '../types/game.ts';
-import { BANDIT_MAX_HP, GRID_SIZE, HOUSES, VILLAGE_MAX_HP } from '../data/index.ts';
+import {
+  BANDIT_MAX_HP,
+  FORTIFICATION_MAX_HP,
+  GRID_SIZE,
+  HOUSES,
+  VILLAGE_MAX_HP,
+} from '../data/index.ts';
 import { getUnitRank } from '../engine/combat.ts';
 import { computeTileYield } from '../engine/economy.ts';
 import {
@@ -53,6 +59,7 @@ interface MapBoardProps {
   readonly attackableKeys: ReadonlySet<CoordKey>;
   readonly buildPreviews: ReadonlyMap<CoordKey, BuildPreviewInfo>;
   readonly showYieldOverlay: boolean;
+  readonly showZoomButtons?: boolean;
   readonly floatingPopups: readonly MapFloatingPopup[];
   readonly focusTileKey: CoordKey | null;
   readonly focusNonce: number;
@@ -67,6 +74,9 @@ function tileHash(x: number, y: number): number {
 
 interface WorldRiverNetwork {
   readonly mainPath: string;
+  readonly terminalOuterPath: string;
+  readonly terminalInnerPath: string;
+  readonly springPools: ReadonlyArray<{ x: number; y: number }>;
   readonly poolCenters: ReadonlyArray<{ x: number; y: number }>;
   readonly wavelets: ReadonlyArray<{ d: string; opacity: number }>;
   readonly wideCorners: ReadonlyArray<{ x: number; y: number }>;
@@ -75,14 +85,17 @@ interface WorldRiverNetwork {
 
 /**
  * Builds ONE unified world-space SVG river network across all explored river tiles.
- * Uses clean C1-continuous curves with solid pre-blended layer colors (zero overlap circles,
- * zero bumpy bank bulges, zero centered road markings, zero WebKit clipPath bugs).
+ * Uses clean C1-continuous curves with solid pre-blended layer colors, and smoothly
+ * tapers interior river terminals into narrower spring tips/ponds rather than blunt bars.
  */
 function buildWorldRiverNetwork(
   allTiles: Record<CoordKey, TileState>,
   exploredRiverTiles: readonly TileState[],
 ): WorldRiverNetwork {
   const mainSegs: string[] = [];
+  const terminalOuterSegs: string[] = [];
+  const terminalInnerSegs: string[] = [];
+  const springPools: Array<{ x: number; y: number }> = [];
   const poolCenters: Array<{ x: number; y: number }> = [];
   const wavelets: Array<{ d: string; opacity: number }> = [];
   const wideCorners: Array<{ x: number; y: number }> = [];
@@ -114,14 +127,31 @@ function buildWorldRiverNetwork(
     const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
 
     if (count === 0) {
-      mainSegs.push(`M${ox + 15},${cy} Q${cx},${cy - 4} ${ox + 33},${cy}`);
-      poolCenters.push({ x: cx, y: cy });
+      // Isolated spring pond
+      springPools.push({ x: cx, y: cy });
     } else if (count === 1) {
-      if (n) mainSegs.push(`M${cx},${ny} C${cx},${oy + 12} ${cx + sway},${oy + 18} ${cx},${cy}`);
-      else if (s) mainSegs.push(`M${cx},${sy} C${cx},${oy + 36} ${cx + sway},${oy + 30} ${cx},${cy}`);
-      else if (w) mainSegs.push(`M${wx},${cy} C${ox + 12},${cy} ${ox + 18},${cy + sway} ${cx},${cy}`);
-      else mainSegs.push(`M${ex},${cy} C${ox + 36},${cy} ${ox + 30},${cy + sway} ${cx},${cy}`);
-      poolCenters.push({ x: cx, y: cy });
+      // Interior river terminal: smoothly taper from edge into a gentle spring tip/pond
+      if (n) {
+        mainSegs.push(`M${cx},${ny} L${cx},${oy + 6}`);
+        terminalOuterSegs.push(`M${cx},${oy + 4} Q${cx + sway * 0.5},${oy + 14} ${cx},${oy + 22}`);
+        terminalInnerSegs.push(`M${cx},${oy + 16} Q${cx - sway * 0.3},${oy + 24} ${cx},${oy + 30}`);
+        springPools.push({ x: cx, y: oy + 29 });
+      } else if (s) {
+        mainSegs.push(`M${cx},${sy} L${cx},${oy + 42}`);
+        terminalOuterSegs.push(`M${cx},${oy + 44} Q${cx + sway * 0.5},${oy + 34} ${cx},${oy + 26}`);
+        terminalInnerSegs.push(`M${cx},${oy + 32} Q${cx - sway * 0.3},${oy + 24} ${cx},${oy + 18}`);
+        springPools.push({ x: cx, y: oy + 19 });
+      } else if (w) {
+        mainSegs.push(`M${wx},${cy} L${ox + 6},${cy}`);
+        terminalOuterSegs.push(`M${ox + 4},${cy} Q${ox + 14},${cy + sway * 0.5} ${ox + 22},${cy}`);
+        terminalInnerSegs.push(`M${ox + 16},${cy} Q${ox + 24},${cy - sway * 0.3} ${ox + 30},${cy}`);
+        springPools.push({ x: ox + 29, y: cy });
+      } else {
+        mainSegs.push(`M${ex},${cy} L${ox + 42},${cy}`);
+        terminalOuterSegs.push(`M${ox + 44},${cy} Q${ox + 34},${cy + sway * 0.5} ${ox + 26},${cy}`);
+        terminalInnerSegs.push(`M${ox + 32},${cy} Q${ox + 24},${cy - sway * 0.3} ${ox + 18},${cy}`);
+        springPools.push({ x: ox + 19, y: cy });
+      }
     } else if (count === 2) {
       if (n && s) {
         mainSegs.push(
@@ -177,7 +207,7 @@ function buildWorldRiverNetwork(
         d: `M${ox + 26},${cy + 3.5 - wShiftY * 0.3} Q${ox + 31.5},${cy + 2 - wShiftY * 0.3} ${ox + 37},${cy + 3.5 - wShiftY * 0.3}`,
         opacity: 0.46,
       });
-    } else {
+    } else if (count >= 2) {
       wavelets.push({
         d: `M${cx - 4.5 + wShiftX * 0.3},${cy - 1.5} Q${cx},${cy - 3.3} ${cx + 4.5 + wShiftX * 0.3},${cy - 1.5}`,
         opacity: 0.52,
@@ -185,6 +215,12 @@ function buildWorldRiverNetwork(
       wavelets.push({
         d: `M${cx - 2.5},${cy + 4} Q${cx + 1.5},${cy + 2.5} ${cx + 5.5},${cy + 4}`,
         opacity: 0.44,
+      });
+    } else {
+      // Delicate spring ripple
+      wavelets.push({
+        d: `M${cx - 3},${cy} Q${cx},${cy - 1.8} ${cx + 3},${cy}`,
+        opacity: 0.5,
       });
     }
 
@@ -199,6 +235,9 @@ function buildWorldRiverNetwork(
 
   return {
     mainPath: mainSegs.join(' '),
+    terminalOuterPath: terminalOuterSegs.join(' '),
+    terminalInnerPath: terminalInnerSegs.join(' '),
+    springPools,
     poolCenters,
     wavelets,
     wideCorners,
@@ -330,9 +369,9 @@ function TerrainTileSvg({
         width={TILE_SIZE}
         height={TILE_SIZE}
         fill={fillUrl}
-        stroke="#1E293B"
-        strokeOpacity={tile.terrain === 'river' ? '0.07' : '0.14'}
-        strokeWidth="0.55"
+        stroke="#1E2430"
+        strokeOpacity={tile.terrain === 'river' ? '0.025' : '0.055'}
+        strokeWidth="0.45"
       />
 
       {/* Plains: rolling meadow contours & organic grass tufts */}
@@ -473,8 +512,8 @@ function TerrainTileSvg({
           <polygon
             points="1.5,17 4.5,8.5 10,5.5 16.5,8 20.5,16.5 15,18.5 6,18.5"
             fill="#334155"
-            stroke="#0F172A"
-            strokeWidth="1"
+            stroke="#1E2430"
+            strokeWidth="0.8"
             strokeLinejoin="round"
           />
           {/* Sunlit upper rock facet */}
@@ -513,6 +552,43 @@ function TerrainTileSvg({
   );
 }
 
+function StructureHpBarSvg({
+  hpRatio,
+  fillColor,
+}: {
+  readonly hpRatio: number;
+  readonly fillColor: string;
+}) {
+  const clamped = Math.max(0, Math.min(1, hpRatio));
+  return (
+    <g pointerEvents="none">
+      {/* Tiny minimalist shield/tower icon distinguishing Structure HP from Unit HP */}
+      <path
+        d="M3.2 2.2 H8.2 V5.1 C8.2 6.4 6.9 7.3 5.7 7.8 C4.5 7.3 3.2 6.4 3.2 5.1 Z"
+        fill="#16181D"
+        stroke="#CBD5E1"
+        strokeWidth="0.65"
+        strokeLinejoin="round"
+      />
+      <rect x="4.8" y="3.4" width="1.8" height="2.4" rx="0.4" fill="#CBD5E1" opacity="0.85" />
+      {/* Framed Structure HP bar */}
+      <rect
+        x="9.8"
+        y="2"
+        width="34"
+        height="5.2"
+        rx="1.8"
+        fill="#16181D"
+        fillOpacity="0.94"
+        stroke="#CBD5E1"
+        strokeOpacity="0.55"
+        strokeWidth="0.65"
+      />
+      <rect x="10.7" y="2.9" width={32.2 * clamped} height="3.4" rx="1" fill={fillColor} />
+    </g>
+  );
+}
+
 function KeepStructureSvg({
   keep,
   hasUnitOnTile,
@@ -525,99 +601,119 @@ function KeepStructureSvg({
   const oy = keep.y * TILE_SIZE;
   const hpRatio = Math.max(0, Math.min(1, keep.keepHp / keep.maxKeepHp));
   const hpColor = hpRatio > 0.5 ? '#22C55E' : hpRatio > 0.25 ? '#F59E0B' : '#EF4444';
-  const foodThreshold = getKeepFoodThreshold(keep);
-  const foodRatio = Math.max(0, Math.min(1, keep.foodProgress / Math.max(1, foodThreshold)));
-  const shortName = keep.name.length > 11 ? `${keep.name.slice(0, 10)}…` : keep.name;
 
   return (
     <g transform={`translate(${ox},${oy})`} pointerEvents="none">
-      {/* Keep HP bar */}
-      <rect x="7" y="2" width="34" height="4.5" rx="2" fill="#0F172A" opacity="0.92" />
-      <rect x="7.8" y="2.8" width={32.4 * hpRatio} height="2.9" rx="1.2" fill={hpColor} />
+      {/* Distinct Structure HP bar (always full opacity at top of tile) */}
+      <StructureHpBarSvg hpRatio={hpRatio} fillColor={hpColor} />
 
-      {/* Ground shadow */}
-      <ellipse cx="24" cy="37.5" rx="16.5" ry="4.5" fill="#0F172A" opacity="0.36" />
+      {/* Underlying Keep geometry — slightly dimmed when occupied so garrisoned unit pops */}
+      <g opacity={hasUnitOnTile ? 0.78 : 1}>
+        {/* Ground shadow */}
+        <ellipse cx="24" cy="37.5" rx="16.5" ry="4.5" fill="#1E2430" opacity="0.32" />
 
-      {/* Tier-1 Timber Motte-and-Bailey OR Tier-2 Twin-Tower Stone Citadel */}
-      {keep.tier === 1 ? (
-        <g transform="translate(8, 8)" filter="url(#keep-shadow)">
-          {/* Timber curtain palisade */}
-          <rect x="4" y="15" width="24" height="14" rx="1.5" fill="#78350F" stroke="#29150A" strokeWidth="1.2" />
-          {/* Central wooden donjon */}
-          <rect x="9" y="8" width="14" height="18" rx="1" fill="#92400E" stroke="#29150A" strokeWidth="1.2" />
-          <polygon points="7,9 16,2 25,9" fill={c.primary} stroke={c.darkStroke} strokeWidth="1.2" />
-          {/* Gatehouse arch */}
-          <path d="M13 29 V22 A3 3 0 0 1 19 22 V29 Z" fill="#1C1917" />
-          {/* Torchlight windows */}
-          <rect x="11.5" y="12" width="2.2" height="3" fill="#FDE047" />
-          <rect x="18.3" y="12" width="2.2" height="3" fill="#FDE047" />
-        </g>
-      ) : (
-        <g transform="translate(6, 7)" filter="url(#keep-shadow)">
-          {/* Stone curtain wall */}
-          <rect x="4" y="12" width="28" height="18" rx="1.5" fill="#94A3B8" stroke="#1E293B" strokeWidth="1.2" />
-          <rect x="4" y="12" width="28" height="4" fill="#CBD5E1" opacity="0.6" />
-          {/* Left & Right crenelated towers */}
-          <rect x="2" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E293B" strokeWidth="1.2" />
-          <rect x="24" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E293B" strokeWidth="1.2" />
-          {/* Tower battlements */}
-          <path d="M2 5 V2.5 H5 V5 H9 V2.5 H12 V5 M24 5 V2.5 H27 V5 H31 V2.5 H34 V5" fill="#E2E8F0" stroke="#1E293B" strokeWidth="1" />
-          {/* Portcullis archway */}
-          <path d="M13.5 30 V20.5 A4.5 4.5 0 0 1 22.5 20.5 V30 Z" fill="#0F172A" />
-          <path d="M16 17 V30 M20 17 V30 M13.5 23 H22.5" stroke="#475569" strokeWidth="0.8" />
-          {/* Flowing House Banner Pennant */}
-          <path d="M18 0.5 V13" stroke="#FEF3C7" strokeWidth="1.3" />
-          <path d="M18 1 L28 4.2 L18 7.5 Z" fill={c.primary} stroke={c.darkStroke} strokeWidth="1" />
-          {/* Specialization Crest Dot */}
-          {keep.specialization !== 'none' && (
-            <circle
-              cx="18"
-              cy="14.5"
-              r="2.6"
-              fill={
-                keep.specialization === 'garrison'
-                  ? '#38BDF8'
-                  : keep.specialization === 'market_town'
-                    ? '#FACC15'
-                    : '#4ADE80'
-              }
-              stroke="#0F172A"
-              strokeWidth="0.9"
-            />
-          )}
-        </g>
-      )}
+        {/* Tier-1 Timber Motte-and-Bailey OR Tier-2 Twin-Tower Stone Citadel */}
+        {keep.tier === 1 ? (
+          <g transform="translate(8, 8)" filter="url(#keep-shadow)">
+            {/* Timber curtain palisade */}
+            <rect x="4" y="15" width="24" height="14" rx="1.5" fill="#78350F" stroke="#3B2314" strokeWidth="0.95" />
+            {/* Central wooden donjon */}
+            <rect x="9" y="8" width="14" height="18" rx="1" fill="#92400E" stroke="#3B2314" strokeWidth="0.95" />
+            <polygon points="7,9 16,2 25,9" fill={c.primary} stroke={c.darkStroke} strokeWidth="0.95" />
+            {/* Gatehouse arch */}
+            <path d="M13 29 V22 A3 3 0 0 1 19 22 V29 Z" fill="#1E2430" />
+            {/* Torchlight windows */}
+            <rect x="11.5" y="12" width="2.2" height="3" fill="#FDE047" />
+            <rect x="18.3" y="12" width="2.2" height="3" fill="#FDE047" />
+          </g>
+        ) : (
+          <g transform="translate(6, 7)" filter="url(#keep-shadow)">
+            {/* Stone curtain wall */}
+            <rect x="4" y="12" width="28" height="18" rx="1.5" fill="#94A3B8" stroke="#1E2430" strokeWidth="0.95" />
+            <rect x="4" y="12" width="28" height="4" fill="#CBD5E1" opacity="0.6" />
+            {/* Left & Right crenelated towers */}
+            <rect x="2" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.95" />
+            <rect x="24" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.95" />
+            {/* Tower battlements */}
+            <path d="M2 5 V2.5 H5 V5 H9 V2.5 H12 V5 M24 5 V2.5 H27 V5 H31 V2.5 H34 V5" fill="#E2E8F0" stroke="#1E2430" strokeWidth="0.82" />
+            {/* Portcullis archway */}
+            <path d="M13.5 30 V20.5 A4.5 4.5 0 0 1 22.5 20.5 V30 Z" fill="#1E2430" />
+            <path d="M16 17 V30 M20 17 V30 M13.5 23 H22.5" stroke="#475569" strokeWidth="0.7" />
+            {/* Flowing House Banner Pennant */}
+            <path d="M18 0.5 V13" stroke="#FEF3C7" strokeWidth="1.15" />
+            <path d="M18 1 L28 4.2 L18 7.5 Z" fill={c.primary} stroke={c.darkStroke} strokeWidth="0.85" />
+            {/* Specialization Crest Dot */}
+            {keep.specialization !== 'none' && (
+              <circle
+                cx="18"
+                cy="14.5"
+                r="2.6"
+                fill={
+                  keep.specialization === 'garrison'
+                    ? '#38BDF8'
+                    : keep.specialization === 'market_town'
+                      ? '#FACC15'
+                      : '#4ADE80'
+                }
+                stroke="#1E2430"
+                strokeWidth="0.75"
+              />
+            )}
+          </g>
+        )}
+      </g>
+    </g>
+  );
+}
 
-      {/* On-Map Keep Nameplate + Miniature Food Bar (hidden only if cluttered? Always clear below tile!) */}
-      {!hasUnitOnTile && (
-        <g transform="translate(24, 41)">
-          <rect
-            x="-23"
-            y="0"
-            width="46"
-            height="12"
-            rx="4"
-            fill="#0F172A"
-            fillOpacity="0.88"
-            stroke={c.primary}
-            strokeWidth="1"
-          />
-          <text
-            x="0"
-            y="7.4"
-            textAnchor="middle"
-            fontSize="6.6"
-            fontWeight="700"
-            fill="#F8FAFC"
-            letterSpacing="0.02em"
-          >
-            {shortName} {keep.tier === 2 ? '★' : ''}
-          </text>
-          {/* Mini Food Progress Bar */}
-          <rect x="-19" y="9.2" width="38" height="1.8" rx="0.9" fill="#1E293B" />
-          <rect x="-19" y="9.2" width={38 * foodRatio} height="1.8" rx="0.9" fill="#22C55E" />
-        </g>
-      )}
+/**
+ * Keep nameplate + miniature Food progress bar rendered in Layer 7b (above the yellow
+ * tile-selection outline) so selection borders never clip or obscure Keep names.
+ */
+function KeepNameplateSvg({
+  keep,
+  hasUnitOnTile,
+}: {
+  readonly keep: KeepState;
+  readonly hasUnitOnTile: boolean;
+}) {
+  const c = HOUSES[keep.ownerHouseId].colors;
+  const ox = keep.x * TILE_SIZE;
+  const oy = keep.y * TILE_SIZE;
+  const foodThreshold = getKeepFoodThreshold(keep);
+  const foodRatio = Math.max(0, Math.min(1, keep.foodProgress / Math.max(1, foodThreshold)));
+  const shortName = keep.name.length > 11 ? `${keep.name.slice(0, 10)}…` : keep.name;
+  const borderAccent = keep.ownerHouseId === 'solis' ? '#E4C56F' : c.primary;
+  // Offset slightly further below when a garrisoned unit's HP bar sits at y=39.8..44.2
+  const plateY = hasUnitOnTile ? 45.5 : 42.5;
+
+  return (
+    <g transform={`translate(${ox + 24}, ${oy + plateY})`} pointerEvents="none">
+      <rect
+        x="-23"
+        y="0"
+        width="46"
+        height="12.5"
+        rx="4"
+        fill="#16181D"
+        fillOpacity="0.93"
+        stroke={borderAccent}
+        strokeWidth="0.95"
+      />
+      <text
+        x="0"
+        y="7.6"
+        textAnchor="middle"
+        fontSize="6.6"
+        fontWeight="700"
+        fill="#F8FAFC"
+        letterSpacing="0.02em"
+      >
+        {shortName} {keep.tier === 2 ? '★' : ''}
+      </text>
+      {/* Mini Food Progress Bar */}
+      <rect x="-19" y="9.6" width="38" height="1.7" rx="0.85" fill="#2A2E38" />
+      <rect x="-19" y="9.6" width={38 * foodRatio} height="1.7" rx="0.85" fill="#22C55E" />
     </g>
   );
 }
@@ -626,10 +722,12 @@ function UnitTokenSvg({
   unit,
   isActionable,
   isViewerUnit,
+  isOnStructure,
 }: {
   readonly unit: UnitState;
   readonly isActionable: boolean;
   readonly isViewerUnit: boolean;
+  readonly isOnStructure: boolean;
 }) {
   const c = HOUSES[unit.houseId].colors;
   const ox = unit.x * TILE_SIZE;
@@ -638,77 +736,92 @@ function UnitTokenSvg({
   const hpColor = hpRatio > 0.5 ? '#22C55E' : hpRatio > 0.25 ? '#F59E0B' : '#EF4444';
   const hasPenalty = unit.homeKeepId === 'orphaned' || unit.isMutinied;
   const rank = getUnitRank(unit.xp ?? 0);
-  const dimmed = isViewerUnit && !isActionable && !unit.isFortified;
+  const acted = isViewerUnit && !isActionable && !unit.isFortified;
+  const ringFill = unit.houseId === 'solis' ? '#E4C56F' : c.primary;
 
   return (
     <g
       className="unit-token-smooth"
       style={{ transform: `translate(${ox}px, ${oy}px)` }}
       pointerEvents="none"
-      opacity={dimmed ? 0.76 : 1}
+      opacity={acted ? 0.84 : 1}
+      filter={acted ? 'url(#unit-acted-filter)' : undefined}
     >
       {/* Active Ready Pulse Ring around Tabletop Base */}
       {isViewerUnit && isActionable && (
         <ellipse
           className="unit-ready-ring"
           cx="24.5"
-          cy="34.2"
-          rx="16.2"
-          ry="6.5"
+          cy="32.8"
+          rx="15.8"
+          ry="5.8"
           fill="none"
           stroke="#FDE047"
-          strokeWidth="1.75"
+          strokeWidth="1.65"
         />
       )}
 
-      {/* Grounded Shadow & 3D-Beveled Tabletop Miniature Base */}
-      <ellipse cx="24.5" cy="36.2" rx="14.2" ry="5" fill="#020617" opacity="0.48" />
-      <ellipse cx="24.5" cy="34.9" rx="13.6" ry="4.7" fill="#0F172A" />
+      {/* Grounded Shadow & 3D-Beveled Tabletop Miniature Base (positioned above HP bar with >= 2px gap) */}
+      <ellipse cx="24.5" cy="34.8" rx="13.8" ry="4.4" fill="#13151A" opacity="0.45" />
+      <ellipse cx="24.5" cy="33.7" rx="13.3" ry="4.2" fill="#1E2430" />
       <ellipse
         cx="24.5"
-        cy="33.5"
-        rx="13.2"
-        ry="4.5"
-        fill={c.primary}
+        cy="32.5"
+        rx="12.7"
+        ry="4.0"
+        fill={ringFill}
         stroke={
           unit.isFortified
             ? '#34D399'
-            : dimmed
-              ? '#64748B'
-              : '#FEF9C3'
+            : isViewerUnit && isActionable
+              ? '#FEF08A'
+              : '#1E2430'
         }
-        strokeWidth="1.65"
+        strokeWidth={isViewerUnit && isActionable ? '1.5' : '1.15'}
       />
       <ellipse
         cx="24.5"
-        cy="33.1"
-        rx="9.8"
-        ry="2.8"
+        cy="32.1"
+        rx="9.4"
+        ry="2.5"
         fill="none"
         stroke="#FFFFFF"
-        strokeOpacity="0.32"
-        strokeWidth="0.85"
+        strokeOpacity={acted ? '0.18' : '0.32'}
+        strokeWidth="0.75"
       />
 
-      {/* Sharpened Miniature Soldier / Rider / Siege Figure */}
-      <g transform="translate(5.5, 0.5) scale(1.06)" filter="url(#token-shadow)">
+      {/* Crisp Ready-to-Act Pip on right rim of foot ring */}
+      {isViewerUnit && isActionable && (
+        <polygon
+          points="38.2,30.3 40.4,32.5 38.2,34.7 36,32.5"
+          fill="#FDE047"
+          stroke="#1E2430"
+          strokeWidth="0.8"
+        />
+      )}
+
+      {/* Sharpened Miniature Soldier / Rider / Siege Figure (with pale cream halo when on a structure) */}
+      <g
+        transform="translate(5.5, 0) scale(1.05)"
+        filter={isOnStructure ? 'url(#unit-structure-halo)' : 'url(#token-shadow)'}
+      >
         <UnitFigureSvg unitId={unit.typeId} houseId={unit.houseId} />
       </g>
 
       {/* Fortified Entrenchment Stakes along Front Edge */}
       {unit.isFortified && (
-        <g stroke="#29150A" strokeWidth="0.85" fill="#B45309">
-          <polygon points="11.5,37.2 13.5,32.6 15.4,37.2" />
-          <polygon points="17.5,38.4 19.5,33.4 21.4,38.4" />
-          <polygon points="27.6,38.4 29.5,33.4 31.5,38.4" />
-          <polygon points="33.6,37.2 35.5,32.6 37.5,37.2" />
+        <g stroke="#3B2314" strokeWidth="0.75" fill="#B45309">
+          <polygon points="11.5,35.8 13.5,31.4 15.4,35.8" />
+          <polygon points="17.5,36.8 19.5,32.2 21.4,36.8" />
+          <polygon points="27.6,36.8 29.5,32.2 31.5,36.8" />
+          <polygon points="33.6,35.8 35.5,31.4 37.5,35.8" />
         </g>
       )}
 
-      {/* Crisp Specular Unit HP Bar */}
-      <rect x="10.5" y="39.5" width="28" height="5" rx="2.2" fill="#0B1120" stroke="#334155" strokeWidth="0.6" />
-      <rect x="11.4" y="40.4" width={26.2 * hpRatio} height="3.2" rx="1.2" fill={hpColor} />
-      <rect x="11.4" y="40.4" width={26.2 * hpRatio} height="1.1" rx="0.6" fill="#FFFFFF" opacity="0.3" />
+      {/* Crisp Unit HP Bar — cleanly separated beneath the foot ring (2px+ vertical gap) */}
+      <rect x="11" y="39.8" width="27" height="4.4" rx="2.2" fill="#16181D" stroke="#383B44" strokeWidth="0.55" />
+      <rect x="11.8" y="40.6" width={25.4 * hpRatio} height="2.8" rx="1.2" fill={hpColor} />
+      <rect x="11.8" y="40.6" width={25.4 * hpRatio} height="0.95" rx="0.5" fill="#FFFFFF" opacity="0.28" />
 
       {/* Veterancy Chevrons (Top-Left) */}
       {rank > 0 && (
@@ -716,15 +829,15 @@ function UnitTokenSvg({
           <circle
             cx="5"
             cy="5"
-            r="5.2"
-            fill="#0F172A"
+            r="5.0"
+            fill="#16181D"
             stroke={rank === 2 ? '#FACC15' : '#CBD5E1'}
-            strokeWidth="1.2"
+            strokeWidth="1.05"
           />
           {rank === 1 ? (
-            <path d="M2.5 6.2 L5 3.4 L7.5 6.2" stroke="#E2E8F0" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M2.5 6.2 L5 3.4 L7.5 6.2" stroke="#E2E8F0" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           ) : (
-            <g stroke="#FACC15" strokeWidth="1.35" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <g stroke="#FACC15" strokeWidth="1.25" fill="none" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2.6 5.2 L5 2.7 L7.4 5.2" />
               <path d="M2.6 7.6 L5 5.1 L7.4 7.6" />
             </g>
@@ -735,8 +848,8 @@ function UnitTokenSvg({
       {/* Supply-Severed / Mutiny Warning Pip (Top-Right) */}
       {hasPenalty && (
         <g transform="translate(35, 3)">
-          <circle cx="4.5" cy="4.5" r="4.8" fill="#DC2626" stroke="#FFFFFF" strokeWidth="1.1" />
-          <text x="4.5" y="7.2" textAnchor="middle" fontSize="7.2" fontWeight="bold" fill="#FFFFFF">
+          <circle cx="4.5" cy="4.5" r="4.6" fill="#DC2626" stroke="#FAF7F0" strokeWidth="0.95" />
+          <text x="4.5" y="7.1" textAnchor="middle" fontSize="7.0" fontWeight="bold" fill="#FFFFFF">
             !
           </text>
         </g>
@@ -753,6 +866,7 @@ export function MapBoard({
   attackableKeys,
   buildPreviews,
   showYieldOverlay,
+  showZoomButtons = false,
   floatingPopups,
   focusTileKey,
   focusNonce,
@@ -760,6 +874,7 @@ export function MapBoard({
   onTileTap,
 }: MapBoardProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const keepCycleIdxRef = useRef(0);
   const [zoom, setZoom] = useState(1.1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
@@ -936,14 +1051,23 @@ export function MapBoard({
     setZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number((z * factor).toFixed(2)))));
   };
 
-  const handleRecenter = () => {
-    const capital =
-      Object.values(state.keeps).find((k) => k.ownerHouseId === viewerHouseId && k.isCapital) ??
-      Object.values(state.keeps).find((k) => k.ownerHouseId === viewerHouseId);
-    if (capital) {
-      centerOnTile(capital.tileKey);
-    }
+  const handleCycleKeep = () => {
+    const ownedKeeps = Object.values(state.keeps)
+      .filter((k) => k.ownerHouseId === viewerHouseId)
+      .sort((a, b) => (a.isCapital ? -1 : b.isCapital ? 1 : a.id.localeCompare(b.id)));
+    if (ownedKeeps.length === 0) return;
+    const idx = keepCycleIdxRef.current % ownedKeeps.length;
+    const target = ownedKeeps[idx]!;
+    keepCycleIdxRef.current = (idx + 1) % ownedKeeps.length;
+    centerOnTile(target.tileKey);
+    onTileTap(target.tileKey);
   };
+
+  const selectedKeepId = useMemo(() => {
+    if (!selectedTileKey) return null;
+    const k = keepByTile.get(selectedTileKey);
+    return k ? k.id : null;
+  }, [selectedTileKey, keepByTile]);
 
   const seasonalAtmosphere =
     season === 'winter'
@@ -957,7 +1081,7 @@ export function MapBoard({
   return (
     <div
       ref={containerRef}
-      className="relative flex-1 w-full overflow-hidden bg-[#0B1120] select-none"
+      className="relative flex-1 w-full overflow-hidden bg-[#13151A] select-none"
       style={{ touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -1019,19 +1143,74 @@ export function MapBoard({
               <stop offset="100%" stopColor="#565B64" />
             </linearGradient>
 
-            {/* Cartographic Unexplored Parchment-Night Pattern */}
+            {/* Warm Deep Charcoal Unexplored Fog Pattern */}
             <pattern id="fog-pattern" width="48" height="48" patternUnits="userSpaceOnUse">
-              <rect width="48" height="48" fill="#131722" />
-              <path d="M48 0 H0 V48" fill="none" stroke="#1E2536" strokeWidth="0.8" />
-              <path d="M22 24 H26 M24 22 V26" stroke="#252E42" strokeWidth="0.7" />
+              <rect width="48" height="48" fill="#13151A" />
+              <path d="M48 0 H0 V48" fill="none" stroke="#1E2128" strokeWidth="0.7" />
+              <path d="M22 24 H26 M24 22 V26" stroke="#252932" strokeWidth="0.65" />
             </pattern>
 
-            {/* Soft Drop Shadows */}
+            {/* Soft Feathered Fog Edge Gradients (replaces razor-sharp 90deg fog borders) */}
+            <linearGradient id="fog-fade-n" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.92" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="fog-fade-s" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.92" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="fog-fade-w" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.92" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="fog-fade-e" x1="1" y1="0" x2="0" y2="0">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.92" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </linearGradient>
+            <radialGradient id="fog-corner-nw" cx="0" cy="0" r="1">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.88" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="fog-corner-ne" cx="1" cy="0" r="1">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.88" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="fog-corner-sw" cx="0" cy="1" r="1">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.88" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="fog-corner-se" cx="1" cy="1" r="1">
+              <stop offset="0%" stopColor="#13151A" stopOpacity="0.88" />
+              <stop offset="55%" stopColor="#13151A" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#13151A" stopOpacity="0" />
+            </radialGradient>
+
+            {/* Soft Drop Shadows & Garrisoned Unit Pale Cream Keyline Halo */}
             <filter id="token-shadow" x="-25%" y="-25%" width="150%" height="150%">
-              <feDropShadow dx="0" dy="1.6" stdDeviation="1.15" floodColor="#020617" floodOpacity="0.62" />
+              <feDropShadow dx="0" dy="1.4" stdDeviation="1.05" floodColor="#13151A" floodOpacity="0.52" />
+            </filter>
+            <filter id="unit-structure-halo" x="-30%" y="-30%" width="160%" height="160%">
+              <feMorphology in="SourceAlpha" operator="dilate" radius="1.45" result="dilated" />
+              <feFlood floodColor="#FAF7F0" floodOpacity="0.94" result="haloColor" />
+              <feComposite in="haloColor" in2="dilated" operator="in" result="halo" />
+              <feDropShadow in="halo" dx="0" dy="1.2" stdDeviation="1" floodColor="#13151A" floodOpacity="0.5" result="haloShadow" />
+              <feMerge>
+                <feMergeNode in="haloShadow" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="unit-acted-filter">
+              <feColorMatrix type="saturate" values="0.65" />
             </filter>
             <filter id="keep-shadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="1.6" floodColor="#020617" floodOpacity="0.45" />
+              <feDropShadow dx="0" dy="1.8" stdDeviation="1.4" floodColor="#13151A" floodOpacity="0.4" />
             </filter>
           </defs>
 
@@ -1043,34 +1222,100 @@ export function MapBoard({
             <TerrainTileSvg key={`t_${tile.key}`} tile={tile} season={season} />
           ))}
 
-          {/* Layer 1b: Carved Organic River Network (Solid pre-blended passes — zero bulges or seam rings) */}
-          {riverNetwork.mainPath.length > 0 && (
+          {/* Layer 1b: Carved Organic River Network with Smoothly Tapered Spring Terminals */}
+          {(riverNetwork.mainPath.length > 0 ||
+            riverNetwork.terminalOuterPath.length > 0 ||
+            riverNetwork.springPools.length > 0) && (
             <g pointerEvents="none">
-              {/* Pass 1: Soft verdant meadow verge (solid pre-blended color, zero alpha overlap rings) */}
-              <path
-                d={riverNetwork.mainPath}
-                fill="none"
-                stroke={
-                  season === 'winter'
-                    ? '#B8C8D6'
-                    : season === 'autumn'
-                      ? '#C1BA9A'
-                      : '#B3C0A0'
-                }
-                strokeWidth="31"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {/* Pass 1: Soft verdant meadow verge */}
+              {riverNetwork.mainPath.length > 0 && (
+                <path
+                  d={riverNetwork.mainPath}
+                  fill="none"
+                  stroke={
+                    season === 'winter'
+                      ? '#B8C8D6'
+                      : season === 'autumn'
+                        ? '#C1BA9A'
+                        : '#B3C0A0'
+                  }
+                  strokeWidth="31"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalOuterPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalOuterPath}
+                  fill="none"
+                  stroke={
+                    season === 'winter'
+                      ? '#B8C8D6'
+                      : season === 'autumn'
+                        ? '#C1BA9A'
+                        : '#B3C0A0'
+                  }
+                  strokeWidth="22"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.springPools.map((pt, i) => (
+                <circle
+                  key={`sp_v_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="10.5"
+                  fill={
+                    season === 'winter'
+                      ? '#B8C8D6'
+                      : season === 'autumn'
+                        ? '#C1BA9A'
+                        : '#B3C0A0'
+                  }
+                />
+              ))}
 
               {/* Pass 2: Warm pebble-sand shore bank */}
-              <path
-                d={riverNetwork.mainPath}
-                fill="none"
-                stroke={season === 'winter' ? '#CBD5E1' : '#C3B28D'}
-                strokeWidth="25.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {riverNetwork.mainPath.length > 0 && (
+                <path
+                  d={riverNetwork.mainPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#CBD5E1' : '#C3B28D'}
+                  strokeWidth="25.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalOuterPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalOuterPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#CBD5E1' : '#C3B28D'}
+                  strokeWidth="17.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalInnerPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalInnerPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#CBD5E1' : '#C3B28D'}
+                  strokeWidth="12.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.springPools.map((pt, i) => (
+                <circle
+                  key={`sp_b_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="8"
+                  fill={season === 'winter' ? '#CBD5E1' : '#C3B28D'}
+                />
+              ))}
               {riverNetwork.wideCorners.map((pt, i) => (
                 <circle
                   key={`wc_b_${i}`}
@@ -1081,27 +1326,70 @@ export function MapBoard({
                 />
               ))}
 
-              {/* Pass 3: Recessed northwest bank shadow (carves river below plains cleanly) */}
+              {/* Pass 3: Recessed northwest bank shadow */}
               <g transform="translate(-0.8, -1)">
-                <path
-                  d={riverNetwork.mainPath}
-                  fill="none"
-                  stroke={season === 'winter' ? '#5884A4' : '#2C678A'}
-                  strokeWidth="22.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                {riverNetwork.mainPath.length > 0 && (
+                  <path
+                    d={riverNetwork.mainPath}
+                    fill="none"
+                    stroke={season === 'winter' ? '#5884A4' : '#2C678A'}
+                    strokeWidth="22.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {riverNetwork.terminalOuterPath.length > 0 && (
+                  <path
+                    d={riverNetwork.terminalOuterPath}
+                    fill="none"
+                    stroke={season === 'winter' ? '#5884A4' : '#2C678A'}
+                    strokeWidth="14.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
               </g>
 
               {/* Pass 4: Continuous shallow turquoise-cerulean water body */}
-              <path
-                d={riverNetwork.mainPath}
-                fill="none"
-                stroke={season === 'winter' ? '#7CB4D6' : '#4E9EC2'}
-                strokeWidth="21.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {riverNetwork.mainPath.length > 0 && (
+                <path
+                  d={riverNetwork.mainPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#7CB4D6' : '#4E9EC2'}
+                  strokeWidth="21.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalOuterPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalOuterPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#7CB4D6' : '#4E9EC2'}
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalInnerPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalInnerPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#7CB4D6' : '#4E9EC2'}
+                  strokeWidth="9.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.springPools.map((pt, i) => (
+                <circle
+                  key={`sp_s_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="6"
+                  fill={season === 'winter' ? '#7CB4D6' : '#4E9EC2'}
+                />
+              ))}
               {riverNetwork.poolCenters.map((pt, i) => (
                 <circle
                   key={`pl_s_${i}`}
@@ -1121,15 +1409,46 @@ export function MapBoard({
                 />
               ))}
 
-              {/* Pass 5: Unbroken deep-channel water core (solid pre-blended blue, zero seam discs) */}
-              <path
-                d={riverNetwork.mainPath}
-                fill="none"
-                stroke={season === 'winter' ? '#5A90B5' : '#3179A1'}
-                strokeWidth="13"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              {/* Pass 5: Unbroken deep-channel water core */}
+              {riverNetwork.mainPath.length > 0 && (
+                <path
+                  d={riverNetwork.mainPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#5A90B5' : '#3179A1'}
+                  strokeWidth="13"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalOuterPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalOuterPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#5A90B5' : '#3179A1'}
+                  strokeWidth="7.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.terminalInnerPath.length > 0 && (
+                <path
+                  d={riverNetwork.terminalInnerPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#5A90B5' : '#3179A1'}
+                  strokeWidth="4.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {riverNetwork.springPools.map((pt, i) => (
+                <circle
+                  key={`sp_d_${i}`}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r="3.2"
+                  fill={season === 'winter' ? '#5A90B5' : '#3179A1'}
+                />
+              ))}
               {riverNetwork.poolCenters.map((pt, i) => (
                 <circle
                   key={`pl_d_${i}`}
@@ -1177,9 +1496,10 @@ export function MapBoard({
             </g>
           )}
 
-          {/* Layer 1c: Owned Territory Wash */}
+          {/* Layer 1c: Owned Territory Wash (House Solis uses warm sunlit gold for Winter snow contrast) */}
           {exploredTiles.map((tile) => {
             if (!tile.ownerHouseId) return null;
+            const isSolis = tile.ownerHouseId === 'solis';
             return (
               <rect
                 key={`own_${tile.key}`}
@@ -1187,61 +1507,122 @@ export function MapBoard({
                 y={tile.y * TILE_SIZE}
                 width={TILE_SIZE}
                 height={TILE_SIZE}
-                fill={HOUSES[tile.ownerHouseId].colors.primary}
-                fillOpacity="0.13"
+                fill={isSolis ? '#E4C56F' : HOUSES[tile.ownerHouseId].colors.primary}
+                fillOpacity={isSolis ? (season === 'winter' ? '0.22' : '0.16') : '0.13'}
                 pointerEvents="none"
               />
             );
           })}
 
-          {/* Layer 2: Sticky Keep Perimeter Dashed Borders */}
+          {/* Layer 2: Merged Contiguous Friendly Territory Borders (outer faction perimeter only) */}
           {tilesArray.map((tile) => {
             const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
-            if (fog === 'unexplored' || !tile.keepId || !tile.ownerHouseId) return null;
+            if (fog === 'unexplored' || !tile.ownerHouseId) return null;
             const ox = tile.x * TILE_SIZE;
             const oy = tile.y * TILE_SIZE;
-            const color = HOUSES[tile.ownerHouseId].colors.primary;
-            const dark = HOUSES[tile.ownerHouseId].colors.darkStroke;
-            const topDiff = state.tiles[`${tile.x},${tile.y - 1}`]?.keepId !== tile.keepId;
-            const bottomDiff = state.tiles[`${tile.x},${tile.y + 1}`]?.keepId !== tile.keepId;
-            const leftDiff = state.tiles[`${tile.x - 1},${tile.y}`]?.keepId !== tile.keepId;
-            const rightDiff = state.tiles[`${tile.x + 1},${tile.y}`]?.keepId !== tile.keepId;
+            const isSolis = tile.ownerHouseId === 'solis';
+            const color = isSolis ? '#E4C56F' : HOUSES[tile.ownerHouseId].colors.primary;
+            const dark = isSolis ? '#1E2430' : HOUSES[tile.ownerHouseId].colors.darkStroke;
 
-            if (!topDiff && !bottomDiff && !leftDiff && !rightDiff) return null;
+            const nTile = state.tiles[`${tile.x},${tile.y - 1}`];
+            const sTile = state.tiles[`${tile.x},${tile.y + 1}`];
+            const wTile = state.tiles[`${tile.x - 1},${tile.y}`];
+            const eTile = state.tiles[`${tile.x + 1},${tile.y}`];
+
+            // Bold outer faction perimeter: only where neighbor does NOT belong to same faction
+            const topOuter = nTile?.ownerHouseId !== tile.ownerHouseId;
+            const bottomOuter = sTile?.ownerHouseId !== tile.ownerHouseId;
+            const leftOuter = wTile?.ownerHouseId !== tile.ownerHouseId;
+            const rightOuter = eTile?.ownerHouseId !== tile.ownerHouseId;
+
+            // Optional faint internal Keep-specific hairline ONLY when that Keep is actively selected
+            const isSelectedKeepTile = selectedKeepId !== null && tile.keepId === selectedKeepId;
+            const topInternal = isSelectedKeepTile && !topOuter && nTile?.keepId !== tile.keepId;
+            const bottomInternal = isSelectedKeepTile && !bottomOuter && sTile?.keepId !== tile.keepId;
+            const leftInternal = isSelectedKeepTile && !leftOuter && wTile?.keepId !== tile.keepId;
+            const rightInternal = isSelectedKeepTile && !rightOuter && eTile?.keepId !== tile.keepId;
+
+            if (
+              !topOuter &&
+              !bottomOuter &&
+              !leftOuter &&
+              !rightOuter &&
+              !topInternal &&
+              !bottomInternal &&
+              !leftInternal &&
+              !rightInternal
+            ) {
+              return null;
+            }
 
             return (
               <g key={`b_${tile.key}`} pointerEvents="none">
-                <g stroke={dark} strokeWidth="3.6" strokeOpacity="0.45" strokeDasharray="6 3">
-                  {topDiff && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + 1.5} />}
-                  {bottomDiff && <line x1={ox + 1.5} y1={oy + TILE_SIZE - 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                  {leftDiff && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                  {rightDiff && <line x1={ox + TILE_SIZE - 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                </g>
-                <g stroke={color} strokeWidth="2.3" strokeDasharray="6 3">
-                  {topDiff && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + 1.5} />}
-                  {bottomDiff && <line x1={ox + 1.5} y1={oy + TILE_SIZE - 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                  {leftDiff && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                  {rightDiff && <line x1={ox + TILE_SIZE - 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
-                </g>
+                {(topOuter || bottomOuter || leftOuter || rightOuter) && (
+                  <>
+                    <g
+                      stroke={dark}
+                      strokeWidth={isSolis ? '3.8' : '3.5'}
+                      strokeOpacity={isSolis ? '0.82' : '0.48'}
+                      strokeDasharray="6 3"
+                    >
+                      {topOuter && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + 1.5} />}
+                      {bottomOuter && <line x1={ox + 1.5} y1={oy + TILE_SIZE - 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                      {leftOuter && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                      {rightOuter && <line x1={ox + TILE_SIZE - 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                    </g>
+                    <g stroke={color} strokeWidth="2.2" strokeDasharray="6 3">
+                      {topOuter && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + 1.5} />}
+                      {bottomOuter && <line x1={ox + 1.5} y1={oy + TILE_SIZE - 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                      {leftOuter && <line x1={ox + 1.5} y1={oy + 1.5} x2={ox + 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                      {rightOuter && <line x1={ox + TILE_SIZE - 1.5} y1={oy + 1.5} x2={ox + TILE_SIZE - 1.5} y2={oy + TILE_SIZE - 1.5} />}
+                    </g>
+                  </>
+                )}
+                {(topInternal || bottomInternal || leftInternal || rightInternal) && (
+                  <g stroke={color} strokeWidth="1" strokeOpacity="0.24" strokeDasharray="3 3">
+                    {topInternal && <line x1={ox + 1} y1={oy + 0.5} x2={ox + TILE_SIZE - 1} y2={oy + 0.5} />}
+                    {bottomInternal && <line x1={ox + 1} y1={oy + TILE_SIZE - 0.5} x2={ox + TILE_SIZE - 1} y2={oy + TILE_SIZE - 0.5} />}
+                    {leftInternal && <line x1={ox + 0.5} y1={oy + 1} x2={ox + 0.5} y2={oy + TILE_SIZE - 1} />}
+                    {rightInternal && <line x1={ox + TILE_SIZE - 0.5} y1={oy + 1} x2={ox + TILE_SIZE - 0.5} y2={oy + TILE_SIZE - 1} />}
+                  </g>
+                )}
               </g>
             );
           })}
 
-          {/* Layer 3: Improvements & Landmarks (Grounded Illustrations + Landmark HP Bars) */}
+          {/* Layer 3: Improvements & Landmarks (Grounded Illustrations + Distinct Structure HP Bars) */}
           {tilesArray.map((tile) => {
             const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
             if (fog === 'unexplored' || keepByTile.has(tile.key)) return null;
             const ox = tile.x * TILE_SIZE;
             const oy = tile.y * TILE_SIZE;
+            const hasUnit = occupiedTileKeys.has(tile.key);
 
             if (tile.improvement) {
+              const showFortHp =
+                tile.fortificationHp !== null && tile.fortificationHp < FORTIFICATION_MAX_HP;
               return (
-                <g
-                  key={`imp_${tile.key}`}
-                  transform={`translate(${ox + 3},${oy + 21}) scale(0.96)`}
-                  pointerEvents="none"
-                >
-                  <ImprovementGlyphSvg id={tile.improvement} />
+                <g key={`imp_${tile.key}`} pointerEvents="none">
+                  <g
+                    transform={`translate(${ox + 3},${oy + 21}) scale(0.96)`}
+                    opacity={hasUnit ? 0.78 : 1}
+                  >
+                    <ImprovementGlyphSvg id={tile.improvement} />
+                  </g>
+                  {showFortHp && tile.fortificationHp !== null && (
+                    <g transform={`translate(${ox}, ${oy})`}>
+                      <StructureHpBarSvg
+                        hpRatio={tile.fortificationHp / FORTIFICATION_MAX_HP}
+                        fillColor={
+                          tile.fortificationHp / FORTIFICATION_MAX_HP > 0.5
+                            ? '#22C55E'
+                            : tile.fortificationHp / FORTIFICATION_MAX_HP > 0.25
+                              ? '#F59E0B'
+                              : '#EF4444'
+                        }
+                      />
+                    </g>
+                  )}
                 </g>
               );
             }
@@ -1256,19 +1637,17 @@ export function MapBoard({
 
               return (
                 <g key={`lm_${tile.key}`} pointerEvents="none">
-                  <g transform={`translate(${ox + 11},${oy + 13}) scale(1.1)`}>
+                  <g
+                    transform={`translate(${ox + 11},${oy + 13}) scale(1.1)`}
+                    opacity={hasUnit ? 0.78 : 1}
+                  >
                     <LandmarkGlyphSvg landmark={tile.landmark} />
                   </g>
                   {hpRatio !== null && (
-                    <g transform={`translate(${ox + 10}, ${oy + 4})`}>
-                      <rect width="28" height="4" rx="1.8" fill="#0F172A" opacity="0.9" />
-                      <rect
-                        x="0.8"
-                        y="0.8"
-                        width={Math.max(0, Math.min(1, hpRatio)) * 26.4}
-                        height="2.4"
-                        rx="1"
-                        fill={tile.landmark === 'outlaw_camp' ? '#EF4444' : '#F59E0B'}
+                    <g transform={`translate(${ox}, ${oy})`}>
+                      <StructureHpBarSvg
+                        hpRatio={hpRatio}
+                        fillColor={tile.landmark === 'outlaw_camp' ? '#EF4444' : '#F59E0B'}
                       />
                     </g>
                   )}
@@ -1278,7 +1657,7 @@ export function MapBoard({
             return null;
           })}
 
-          {/* Layer 3b: Optional Owned Tile Yield Badges */}
+          {/* Layer 3b: Accessible Owned Tile Yield Badges (Monochrome Micro-Icons + Color Accents) */}
           {showYieldOverlay &&
             tilesArray.map((tile) => {
               if (tile.ownerHouseId !== viewerHouseId || keepByTile.has(tile.key)) return null;
@@ -1287,17 +1666,62 @@ export function MapBoard({
               if (y.food === 0 && y.materials === 0 && y.coin === 0) return null;
               const ox = tile.x * TILE_SIZE;
               const oy = tile.y * TILE_SIZE;
-              const chips: Array<{ text: string; fill: string }> = [];
-              if (y.food > 0) chips.push({ text: `+${y.food}`, fill: '#16A34A' });
-              if (y.materials > 0) chips.push({ text: `+${y.materials}`, fill: '#D97706' });
-              if (y.coin > 0) chips.push({ text: `+${y.coin}`, fill: '#CA8A04' });
+              const chips: Array<{ kind: 'food' | 'mat' | 'coin'; text: string; stroke: string; accent: string }> = [];
+              if (y.food > 0) chips.push({ kind: 'food', text: `+${y.food}`, stroke: '#22C55E', accent: '#4ADE80' });
+              if (y.materials > 0) chips.push({ kind: 'mat', text: `+${y.materials}`, stroke: '#EA580C', accent: '#FB923C' });
+              if (y.coin > 0) chips.push({ kind: 'coin', text: `+${y.coin}`, stroke: '#EAB308', accent: '#FDE047' });
+
+              const isCompact = chips.length >= 3;
+              const chipW = isCompact ? 14.8 : 18.2;
+              const chipGap = isCompact ? 0.7 : 1.4;
+              const startX = isCompact ? 1.2 : 2.5;
 
               return (
-                <g key={`yld_${tile.key}`} transform={`translate(${ox + 3}, ${oy + 3})`} pointerEvents="none">
+                <g key={`yld_${tile.key}`} transform={`translate(${ox + startX}, ${oy + 2.5})`} pointerEvents="none">
                   {chips.map((ch, idx) => (
-                    <g key={idx} transform={`translate(${idx * 14.5}, 0)`}>
-                      <rect width="13.5" height="9.5" rx="3" fill="#0F172A" fillOpacity="0.82" stroke={ch.fill} strokeWidth="0.8" />
-                      <text x="6.75" y="7.1" textAnchor="middle" fontSize="6.5" fontWeight="700" fill="#F8FAFC">
+                    <g key={ch.kind} transform={`translate(${idx * (chipW + chipGap)}, 0)`}>
+                      <rect
+                        width={chipW}
+                        height="10.2"
+                        rx="3"
+                        fill="#16181D"
+                        fillOpacity="0.88"
+                        stroke={ch.stroke}
+                        strokeWidth="0.75"
+                      />
+                      {/* Ultra-clean monochrome minimalist micro-icon (Food sprout / Materials cube / Coin circle) */}
+                      <g transform={isCompact ? 'translate(1.4, 2.1) scale(0.75)' : 'translate(2.1, 1.8) scale(0.84)'}>
+                        {ch.kind === 'food' && (
+                          <path
+                            d="M4 7.4 V2.2 M4 5.2 C1.8 4.8 1.5 2.7 3 2 C3.8 2.5 4 3.8 4 5.2 M4 4.2 C6.2 3.8 6.5 1.8 5 1.1 C4.2 1.6 4 2.9 4 4.2"
+                            fill="none"
+                            stroke={ch.accent}
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        )}
+                        {ch.kind === 'mat' && (
+                          <g fill="none" stroke={ch.accent} strokeWidth="1.05" strokeLinejoin="round">
+                            <polygon points="4,1 7.2,2.7 4,4.4 0.8,2.7" fill={ch.accent} fillOpacity="0.35" />
+                            <path d="M0.8 2.7 V5.8 L4 7.5 L7.2 5.8 V2.7 M4 4.4 V7.5" />
+                          </g>
+                        )}
+                        {ch.kind === 'coin' && (
+                          <g>
+                            <circle cx="4" cy="4.2" r="3" fill="none" stroke={ch.accent} strokeWidth="1.15" />
+                            <circle cx="4" cy="4.2" r="1.1" fill={ch.accent} />
+                          </g>
+                        )}
+                      </g>
+                      <text
+                        x={isCompact ? 10.6 : 12.8}
+                        y="7.4"
+                        textAnchor="middle"
+                        fontSize={isCompact ? '5.6' : '6.2'}
+                        fontWeight="700"
+                        fill="#F8FAFC"
+                      >
                         {ch.text}
                       </text>
                     </g>
@@ -1306,7 +1730,7 @@ export function MapBoard({
               );
             })}
 
-          {/* Layer 4: Keeps */}
+          {/* Layer 4: Keeps (Architecture + Structure HP Bar) */}
           {Array.from(keepByTile.values()).map((keep) => {
             const fog: FogStatus = fogMap[keep.tileKey] ?? 'unexplored';
             if (fog === 'unexplored') return null;
@@ -1327,7 +1751,7 @@ export function MapBoard({
             pointerEvents="none"
           />
 
-          {/* Layer 5: Organic Fog of War (Unexplored Shroud + Feathered Edges + Explored Dusk Veil) */}
+          {/* Layer 5: Organic Fog of War (Unexplored Shroud + Feathered Mist Edges + Explored Dusk Veil) */}
           {tilesArray.map((tile) => {
             const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
             if (fog === 'visible') return null;
@@ -1357,59 +1781,81 @@ export function MapBoard({
                 />
               );
             }
-            // Explored (remembered) dusk veil + soft shadow edges against unexplored neighbors
-            const nUnexp = fogMap[`${tile.x},${tile.y - 1}`] === 'unexplored';
-            const sUnexp = fogMap[`${tile.x},${tile.y + 1}`] === 'unexplored';
-            const wUnexp = fogMap[`${tile.x - 1},${tile.y}`] === 'unexplored';
-            const eUnexp = fogMap[`${tile.x + 1},${tile.y}`] === 'unexplored';
-
+            // Explored (remembered) dusk veil
             return (
-              <g key={`fog_${tile.key}`} pointerEvents="none">
-                <rect
-                  x={ox}
-                  y={oy}
-                  width={TILE_SIZE}
-                  height={TILE_SIZE}
-                  fill="#0B1325"
-                  fillOpacity="0.46"
-                />
-                {nUnexp && <rect x={ox} y={oy} width={TILE_SIZE} height="5" fill="#131722" opacity="0.55" />}
-                {sUnexp && <rect x={ox} y={oy + TILE_SIZE - 5} width={TILE_SIZE} height="5" fill="#131722" opacity="0.55" />}
-                {wUnexp && <rect x={ox} y={oy} width="5" height={TILE_SIZE} fill="#131722" opacity="0.55" />}
-                {eUnexp && <rect x={ox + TILE_SIZE - 5} y={oy} width="5" height={TILE_SIZE} fill="#131722" opacity="0.55" />}
-              </g>
+              <rect
+                key={`fog_${tile.key}`}
+                x={ox}
+                y={oy}
+                width={TILE_SIZE}
+                height={TILE_SIZE}
+                fill="#13151A"
+                fillOpacity="0.44"
+                pointerEvents="none"
+              />
             );
           })}
 
-          {/* Soft feather on visible tiles bordering unexplored shroud */}
-          {tilesArray.map((tile) => {
-            if (fogMap[tile.key] !== 'visible') return null;
-            const nUnexp = fogMap[`${tile.x},${tile.y - 1}`] === 'unexplored';
-            const sUnexp = fogMap[`${tile.x},${tile.y + 1}`] === 'unexplored';
-            const wUnexp = fogMap[`${tile.x - 1},${tile.y}`] === 'unexplored';
-            const eUnexp = fogMap[`${tile.x + 1},${tile.y}`] === 'unexplored';
-            if (!nUnexp && !sUnexp && !wUnexp && !eUnexp) return null;
+          {/* Soft Feathered Mist & Rounded Corner Transitions along Discovered-to-Unexplored Borders */}
+          {exploredTiles.map((tile) => {
+            const nUnexp = (fogMap[`${tile.x},${tile.y - 1}`] ?? 'unexplored') === 'unexplored';
+            const sUnexp = (fogMap[`${tile.x},${tile.y + 1}`] ?? 'unexplored') === 'unexplored';
+            const wUnexp = (fogMap[`${tile.x - 1},${tile.y}`] ?? 'unexplored') === 'unexplored';
+            const eUnexp = (fogMap[`${tile.x + 1},${tile.y}`] ?? 'unexplored') === 'unexplored';
+            const nwUnexp = (fogMap[`${tile.x - 1},${tile.y - 1}`] ?? 'unexplored') === 'unexplored';
+            const neUnexp = (fogMap[`${tile.x + 1},${tile.y - 1}`] ?? 'unexplored') === 'unexplored';
+            const swUnexp = (fogMap[`${tile.x - 1},${tile.y + 1}`] ?? 'unexplored') === 'unexplored';
+            const seUnexp = (fogMap[`${tile.x + 1},${tile.y + 1}`] ?? 'unexplored') === 'unexplored';
+
+            if (!nUnexp && !sUnexp && !wUnexp && !eUnexp && !nwUnexp && !neUnexp && !swUnexp && !seUnexp) {
+              return null;
+            }
             const ox = tile.x * TILE_SIZE;
             const oy = tile.y * TILE_SIZE;
+            const edgeW = 10;
+            const cornerR = 11;
+
             return (
               <g key={`fedge_${tile.key}`} pointerEvents="none">
-                {nUnexp && <rect x={ox} y={oy} width={TILE_SIZE} height="4" fill="#131722" opacity="0.45" />}
-                {sUnexp && <rect x={ox} y={oy + TILE_SIZE - 4} width={TILE_SIZE} height="4" fill="#131722" opacity="0.45" />}
-                {wUnexp && <rect x={ox} y={oy} width="4" height={TILE_SIZE} fill="#131722" opacity="0.45" />}
-                {eUnexp && <rect x={ox + TILE_SIZE - 4} y={oy} width="4" height={TILE_SIZE} fill="#131722" opacity="0.45" />}
+                {nUnexp && <rect x={ox} y={oy} width={TILE_SIZE} height={edgeW} fill="url(#fog-fade-n)" />}
+                {sUnexp && <rect x={ox} y={oy + TILE_SIZE - edgeW} width={TILE_SIZE} height={edgeW} fill="url(#fog-fade-s)" />}
+                {wUnexp && <rect x={ox} y={oy} width={edgeW} height={TILE_SIZE} fill="url(#fog-fade-w)" />}
+                {eUnexp && <rect x={ox + TILE_SIZE - edgeW} y={oy} width={edgeW} height={TILE_SIZE} fill="url(#fog-fade-e)" />}
+                {/* Soften concave/convex 90deg corners with radial mist */}
+                {(nwUnexp || (nUnexp && wUnexp)) && (
+                  <rect x={ox} y={oy} width={cornerR} height={cornerR} fill="url(#fog-corner-nw)" />
+                )}
+                {(neUnexp || (nUnexp && eUnexp)) && (
+                  <rect x={ox + TILE_SIZE - cornerR} y={oy} width={cornerR} height={cornerR} fill="url(#fog-corner-ne)" />
+                )}
+                {(swUnexp || (sUnexp && wUnexp)) && (
+                  <rect x={ox} y={oy + TILE_SIZE - cornerR} width={cornerR} height={cornerR} fill="url(#fog-corner-sw)" />
+                )}
+                {(seUnexp || (sUnexp && eUnexp)) && (
+                  <rect x={ox + TILE_SIZE - cornerR} y={oy + TILE_SIZE - cornerR} width={cornerR} height={cornerR} fill="url(#fog-corner-se)" />
+                )}
               </g>
             );
           })}
 
           {/* Layer 6: Visible Units */}
-          {visibleUnits.map((u) => (
-            <UnitTokenSvg
-              key={u.id}
-              unit={u}
-              isActionable={actionableIds.has(u.id)}
-              isViewerUnit={u.houseId === viewerHouseId}
-            />
-          ))}
+          {visibleUnits.map((u) => {
+            const tile = state.tiles[u.tileKey];
+            const isOnStructure =
+              keepByTile.has(u.tileKey) ||
+              (tile !== undefined &&
+                (tile.improvement !== null ||
+                  (tile.landmark !== 'none' && !tile.landmarkCleared)));
+            return (
+              <UnitTokenSvg
+                key={u.id}
+                unit={u}
+                isActionable={actionableIds.has(u.id)}
+                isViewerUnit={u.houseId === viewerHouseId}
+                isOnStructure={isOnStructure}
+              />
+            );
+          })}
 
           {/* Layer 7: Tactical Overlays (Reachable, Attackable, Build Preview, Selected) */}
           {Array.from(reachableKeys).map((k) => {
@@ -1507,10 +1953,23 @@ export function MapBoard({
               rx="5"
               fill="none"
               stroke="#FACC15"
-              strokeWidth="3"
+              strokeWidth="2.6"
               pointerEvents="none"
             />
           )}
+
+          {/* Layer 7b: Keep Nameplates (rendered ABOVE selection frame so yellow borders never clip names) */}
+          {Array.from(keepByTile.values()).map((keep) => {
+            const fog: FogStatus = fogMap[keep.tileKey] ?? 'unexplored';
+            if (fog === 'unexplored') return null;
+            return (
+              <KeepNameplateSvg
+                key={`np_${keep.id}`}
+                keep={keep}
+                hasUnitOnTile={occupiedTileKeys.has(keep.tileKey)}
+              />
+            );
+          })}
 
           {/* Layer 8: Floating Action & Combat Callouts */}
           {floatingPopups.map((p) => {
@@ -1527,8 +1986,8 @@ export function MapBoard({
                     width="52"
                     height="15"
                     rx="7"
-                    fill="#0F172A"
-                    fillOpacity="0.92"
+                    fill="#16181D"
+                    fillOpacity="0.93"
                     stroke={p.color}
                     strokeWidth="1.2"
                   />
@@ -1549,43 +2008,103 @@ export function MapBoard({
         </svg>
       </div>
 
-      {/* Floating Map Controls: Zoom, Recenter & Tile Yield Toggle (>= 44x44 targets, 8px gaps) */}
-      <div className="absolute right-2 bottom-2 flex flex-col gap-2 z-20">
+      {/* Compact Translucent Icon-Only Floating Map Controls (44x44px, 8px gaps, bottom-right) */}
+      <div
+        className="absolute right-2 bottom-2 flex flex-col gap-2 z-20"
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+      >
+        {showZoomButtons && (
+          <>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(MAX_ZOOM, Number((z + 0.25).toFixed(2))))}
+              className="touch-target w-11 h-11 flex items-center justify-center rounded-xl bg-[#1E2128]/78 backdrop-blur-sm border border-[#383B44]/90 text-stone-200 shadow-lg active:scale-95 transition"
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M9 4 V14 M4 9 H14" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, Number((z - 0.25).toFixed(2))))}
+              className="touch-target w-11 h-11 flex items-center justify-center rounded-xl bg-[#1E2128]/78 backdrop-blur-sm border border-[#383B44]/90 text-stone-200 shadow-lg active:scale-95 transition"
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M4 9 H14" />
+              </svg>
+            </button>
+          </>
+        )}
+
         <button
           type="button"
           onClick={onToggleYieldOverlay}
-          className={`touch-target flex items-center justify-center rounded-xl border text-[11px] font-bold shadow-lg active:scale-95 transition ${
+          className={`touch-target w-11 h-11 flex items-center justify-center rounded-xl border backdrop-blur-sm shadow-lg active:scale-95 transition ${
             showYieldOverlay
-              ? 'bg-emerald-900/90 border-emerald-400/80 text-emerald-100'
-              : 'bg-[#162033]/92 border-slate-600 text-slate-300'
+              ? 'bg-emerald-950/80 border-emerald-400/75 text-emerald-300'
+              : 'bg-[#1E2128]/78 border-[#383B44]/90 text-stone-300'
           }`}
           aria-label="Toggle tile yields overlay"
+          aria-pressed={showYieldOverlay}
+          title={showYieldOverlay ? 'Hide tile yields' : 'Show tile yields'}
         >
-          Yields
+          {/* Minimalist Sprout / Yield Icon */}
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M10 16 V6.5"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+            <path
+              d="M10 12.2 C6.2 11.6 5.2 8.4 7 6.8 C8.8 7.5 9.8 9.8 10 12.2 Z"
+              fill="currentColor"
+              fillOpacity="0.28"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M10 10.2 C13.8 9.6 14.8 6.4 13 4.8 C11.2 5.5 10.2 7.8 10 10.2 Z"
+              fill="currentColor"
+              fillOpacity="0.28"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            <path d="M6.8 16 H13.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
         </button>
+
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.min(MAX_ZOOM, Number((z + 0.25).toFixed(2))))}
-          className="touch-target flex items-center justify-center rounded-xl bg-[#162033]/92 border border-slate-600 text-slate-100 text-lg font-bold shadow-lg active:bg-slate-700"
-          aria-label="Zoom in"
+          onClick={handleCycleKeep}
+          className="touch-target w-11 h-11 flex items-center justify-center rounded-xl bg-[#1E2128]/78 backdrop-blur-sm border border-[#D4AF5A]/50 text-[#E8C97E] shadow-lg active:scale-95 transition"
+          aria-label="Cycle friendly Keeps"
+          title="Cycle Keeps"
         >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={() => setZoom((z) => Math.max(MIN_ZOOM, Number((z - 0.25).toFixed(2))))}
-          className="touch-target flex items-center justify-center rounded-xl bg-[#162033]/92 border border-slate-600 text-slate-100 text-lg font-bold shadow-lg active:bg-slate-700"
-          aria-label="Zoom out"
-        >
-          −
-        </button>
-        <button
-          type="button"
-          onClick={handleRecenter}
-          className="touch-target flex items-center justify-center rounded-xl bg-[#162033]/92 border border-amber-500/50 text-amber-200 text-xs font-bold shadow-lg active:bg-slate-700"
-          aria-label="Center on capital"
-        >
-          Keep
+          {/* Minimalist Castle / Keep Icon */}
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M4 16 V7.5 H6.5 V9.5 H8.8 V6.5 H11.2 V9.5 H13.5 V7.5 H16 V16 Z"
+              fill="currentColor"
+              fillOpacity="0.22"
+              stroke="currentColor"
+              strokeWidth="1.45"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M8.5 16 V12.8 A1.5 1.5 0 0 1 11.5 12.8 V16"
+              stroke="currentColor"
+              strokeWidth="1.35"
+              strokeLinecap="round"
+            />
+          </svg>
         </button>
       </div>
     </div>

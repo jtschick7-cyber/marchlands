@@ -147,10 +147,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
     startingDecreeCount: 0,
     aiPersonalityLabel: 'Opportunistic Tactician',
     colors: {
-      primary: '#F8FAFC',
-      lightTint: '#F1F5F9',
-      darkStroke: '#0F172A',
-      badgeText: '#0F172A',
+      primary: '#F3E2B3',
+      lightTint: '#FAF1D6',
+      darkStroke: '#1E2430',
+      badgeText: '#1E2430',
     },
     settlementNames: [
       'Dawnspire',

@@ -133,7 +133,7 @@ export function TopHud({
           <button
             type="button"
             onClick={onOpenMenu}
-            className="touch-target px-2.5 rounded-xl bg-slate-800/90 border border-slate-600/80 text-[11px] font-bold text-slate-100 active:bg-slate-700"
+            className="touch-target px-2.5 rounded-xl bg-[#252932]/90 border border-[#383B44] text-[11px] font-bold text-stone-100 active:bg-[#303540]"
             aria-label="Open Menu"
           >
             Menu
@@ -146,7 +146,7 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'food' ? null : 'food')}
-          className="min-h-[44px] px-1 rounded-xl bg-slate-950/70 border border-emerald-700/40 flex flex-col items-center justify-center tabular-nums active:bg-slate-800"
+          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-emerald-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
           <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-emerald-400">
             <ResourceIconSvg kind="food" size={11} />
@@ -158,7 +158,7 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'materials' ? null : 'materials')}
-          className="min-h-[44px] px-1 rounded-xl bg-slate-950/70 border border-amber-700/40 flex flex-col items-center justify-center tabular-nums active:bg-slate-800"
+          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-amber-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
           <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-amber-400">
             <ResourceIconSvg kind="materials" size={11} />
@@ -173,7 +173,7 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'coin' ? null : 'coin')}
-          className="min-h-[44px] px-1 rounded-xl bg-slate-950/70 border border-yellow-600/40 flex flex-col items-center justify-center tabular-nums active:bg-slate-800"
+          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-yellow-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
           <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-yellow-400">
             <ResourceIconSvg kind="coin" size={11} />
@@ -190,7 +190,7 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'favor' ? null : 'favor')}
-          className="min-h-[44px] px-1 rounded-xl bg-slate-950/70 border border-purple-500/35 flex flex-col items-center justify-center tabular-nums active:bg-slate-800"
+          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-purple-500/35 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
           <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-purple-300">
             <ResourceIconSvg kind="favor" size={11} />
@@ -202,7 +202,7 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'keeps' ? null : 'keeps')}
-          className="min-h-[44px] px-1 rounded-xl bg-slate-950/70 border border-sky-600/40 flex flex-col items-center justify-center tabular-nums active:bg-slate-800"
+          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-sky-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
           <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-sky-300">
             <ResourceIconSvg kind="keep" size={11} />
@@ -250,7 +250,7 @@ export function TopHud({
 
       {/* Tap-to-Inspect Popover */}
       {activePopover && (
-        <div className="mt-1.5 p-2.5 rounded-xl bg-[#0B1120] border border-amber-500/45 text-xs text-slate-200 flex items-start justify-between gap-2 shadow-xl">
+        <div className="mt-1.5 p-2.5 rounded-xl bg-[#16181D] border border-[#D4AF5A]/50 text-xs text-stone-200 flex items-start justify-between gap-2 shadow-xl">
           <p className="leading-snug">{popoverText[activePopover]}</p>
           <button
             type="button"

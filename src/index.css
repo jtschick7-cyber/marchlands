@@ -3,10 +3,10 @@
 :root {
   --font-serif: 'Cinzel', 'Georgia', serif;
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --surface-gutter: #0B1120;
-  --surface-top: #0F172A;
-  --surface-chrome: #162033;
-  --surface-border: #334155;
+  --surface-gutter: #13151A;
+  --surface-top: #16181D;
+  --surface-chrome: #1E2128;
+  --surface-border: #383B44;
   --surface-vellum: #FAF7F0;
   --ink-dark: #1C1917;
   --wax-bronze: #B45309;
@@ -107,21 +107,21 @@ html.is-ios.is-standalone .ios-status-bar-shield {
   min-height: 44px;
 }
 
-/* Medieval iron-slate & aged vellum surfaces */
+/* Warm charcoal-slate & aged vellum surfaces */
 .surface-iron-top {
   background-color: var(--surface-top);
-  background-image: linear-gradient(180deg, #0F172A 0%, #162033 100%);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  background-image: linear-gradient(180deg, #16181D 0%, #1E2128 100%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.42);
 }
 
 .surface-iron {
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.97) 0%, rgba(15, 23, 42, 0.98) 100%);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, rgba(33, 36, 44, 0.97) 0%, rgba(22, 24, 29, 0.98) 100%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.42);
 }
 
 .surface-iron-up {
-  background: linear-gradient(0deg, rgba(15, 23, 42, 0.99) 0%, rgba(30, 41, 59, 0.97) 100%);
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.48);
+  background: linear-gradient(0deg, rgba(22, 24, 29, 0.99) 0%, rgba(33, 36, 44, 0.97) 100%);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.45);
 }
 
 .surface-vellum {

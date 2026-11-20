@@ -641,7 +641,7 @@ export default function App() {
   // Render Title Screen when no campaign is active
   if (!gameState) {
     return (
-      <div className="h-full w-full overflow-x-hidden bg-[#0B1120]">
+      <div className="h-full w-full overflow-x-hidden bg-[#13151A]">
         <div className="ios-status-bar-shield" aria-hidden="true" />
         <TitleScreen
           autosave={autosave}
@@ -670,7 +670,7 @@ export default function App() {
     : null;
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0B1120]">
+    <div className="h-full w-full flex flex-col overflow-hidden bg-[#13151A]">
       <div className="ios-status-bar-shield" aria-hidden="true" />
       <TopHud
         state={gameState}
@@ -694,6 +694,7 @@ export default function App() {
         attackableKeys={attackableKeys}
         buildPreviews={buildPreviews}
         showYieldOverlay={ui.showYieldOverlay}
+        showZoomButtons={ui.showZoomButtons}
         floatingPopups={ui.floatingPopups}
         focusTileKey={focusTile.key}
         focusNonce={focusTile.nonce}
@@ -870,6 +871,10 @@ export default function App() {
       {ui.showMenuDrawer && (
         <MenuDrawer
           saveSlots={saveSlots}
+          showZoomButtons={ui.showZoomButtons}
+          onToggleZoomButtons={() =>
+            setUi((prev) => ({ ...prev, showZoomButtons: !prev.showZoomButtons }))
+          }
           onClose={() => setUi((prev) => ({ ...prev, showMenuDrawer: false }))}
           onSaveSlot={(slotId) => {
             void saveGameToSlot(slotId, gameState).then((res) => {
