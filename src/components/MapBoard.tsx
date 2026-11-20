@@ -35,7 +35,7 @@ import { getSeason } from '../engine/stateHelpers.ts';
 import {
   ImprovementGlyphSvg,
   LandmarkGlyphSvg,
-  UnitSilhouetteSvg,
+  UnitFigureSvg,
 } from './svg/HeraldrySvg.tsx';
 import type { MapFloatingPopup } from './uiTypes.ts';
 
@@ -65,6 +65,164 @@ function tileHash(x: number, y: number): number {
   return ((x * 73 + y * 137 + x * y * 19) & 0x7fffffff) % 100;
 }
 
+/**
+ * Builds smooth organic SVG river channel paths for any N/S/E/W connection topology
+ * so rivers flow naturally around bends instead of stiff 90-degree pipes.
+ */
+function buildRiverPaths(
+  mask: { n: boolean; s: boolean; e: boolean; w: boolean },
+  h: number,
+): { readonly main: string; readonly shimmer: string; readonly hasPool: boolean } {
+  const { n, s, e, w } = mask;
+  const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
+  const bend = (h % 2 === 0 ? 1 : -1) * (2.5 + (h % 3));
+
+  if (count === 0) {
+    return {
+      main: 'M14 25 Q24 19 34 25',
+      shimmer: 'M18 24 Q24 22 30 24',
+      hasPool: true,
+    };
+  }
+
+  if (count === 1) {
+    if (n) return { main: `M24 0 Q${24 + bend} 14 24 27`, shimmer: 'M24 5 V19', hasPool: true };
+    if (s) return { main: `M24 48 Q${24 + bend} 34 24 21`, shimmer: 'M24 29 V43', hasPool: true };
+    if (w) return { main: `M0 24 Q14 ${24 + bend} 27 24`, shimmer: 'M5 24 H19', hasPool: true };
+    return { main: `M48 24 Q34 ${24 + bend} 21 24`, shimmer: 'M29 24 H43', hasPool: true };
+  }
+
+  if (count === 2) {
+    // Straight meanders
+    if (n && s) {
+      return {
+        main: `M24 0 C${24 - bend} 16 ${24 + bend} 32 24 48`,
+        shimmer: `M${24 - bend * 0.4} 9 C${24 - bend * 0.7} 20 ${24 + bend * 0.7} 28 ${24 + bend * 0.3} 39`,
+        hasPool: false,
+      };
+    }
+    if (w && e) {
+      return {
+        main: `M0 24 C16 ${24 - bend} 32 ${24 + bend} 48 24`,
+        shimmer: `M9 ${24 - bend * 0.4} C20 ${24 - bend * 0.7} 28 ${24 + bend * 0.7} 39 ${24 + bend * 0.3}`,
+        hasPool: false,
+      };
+    }
+    // Sweeping smooth river bends (no hard 90-deg corners)
+    if (n && e) return { main: 'M24 0 Q24 24 48 24', shimmer: 'M26 7 Q28 21 41 22', hasPool: false };
+    if (n && w) return { main: 'M24 0 Q24 24 0 24', shimmer: 'M22 7 Q20 21 7 22', hasPool: false };
+    if (s && e) return { main: 'M24 48 Q24 24 48 24', shimmer: 'M26 41 Q28 27 41 26', hasPool: false };
+    return { main: 'M24 48 Q24 24 0 24', shimmer: 'M22 41 Q20 27 7 26', hasPool: false };
+  }
+
+  if (count === 3) {
+    // Smooth main trunk + gracefully curved tributary joining the confluence
+    if (!w) {
+      return {
+        main: 'M24 0 Q22 24 24 48 M24 24 Q34 24 48 24',
+        shimmer: 'M24 7 V41 M30 24 H42',
+        hasPool: true,
+      };
+    }
+    if (!e) {
+      return {
+        main: 'M24 0 Q26 24 24 48 M24 24 Q14 24 0 24',
+        shimmer: 'M24 7 V41 M6 24 H18',
+        hasPool: true,
+      };
+    }
+    if (!n) {
+      return {
+        main: 'M0 24 Q24 26 48 24 M24 24 Q24 34 24 48',
+        shimmer: 'M7 24 H41 M24 30 V42',
+        hasPool: true,
+      };
+    }
+    return {
+      main: 'M0 24 Q24 22 48 24 M24 24 Q24 14 24 0',
+      shimmer: 'M7 24 H41 M24 6 V18',
+      hasPool: true,
+    };
+  }
+
+  // 4-way river confluence
+  return {
+    main: 'M24 0 V48 M0 24 H48',
+    shimmer: 'M24 7 V41 M7 24 H41',
+    hasPool: true,
+  };
+}
+
+/** Layered conifer evergreen with trunk and scalloped bough tiers. */
+function LayeredPine({
+  x,
+  y,
+  scale = 1,
+  dark,
+  mid,
+  light,
+  snow,
+}: {
+  readonly x: number;
+  readonly y: number;
+  readonly scale?: number;
+  readonly dark: string;
+  readonly mid: string;
+  readonly light: string;
+  readonly snow: boolean;
+}) {
+  return (
+    <g transform={`translate(${x},${y}) scale(${scale})`}>
+      <ellipse cx="0" cy="1.8" rx="6.2" ry="2" fill="#17281B" opacity="0.3" />
+      <rect x="-1.1" y="-2.5" width="2.2" height="4.2" rx="0.5" fill="#5C3A21" />
+      {/* Lower bough tier */}
+      <path d="M-6.4 -1.8 Q0 -3.5 6.4 -1.8 L3.6 -7.2 H-3.6 Z" fill={dark} />
+      <path d="M-5.2 -2.2 L0 -7.5 L0 -1.8 Z" fill={mid} opacity="0.7" />
+      {/* Middle bough tier */}
+      <path d="M-5.2 -6.2 Q0 -7.6 5.2 -6.2 L2.5 -11.6 H-2.5 Z" fill={mid} />
+      <path d="M-4.3 -6.5 L0 -11.8 L0 -6.2 Z" fill={light} opacity="0.65" />
+      {/* Crown tip */}
+      <path d="M-3.5 -10.5 Q0 -11.6 3.5 -10.5 L0 -15.6 Z" fill={light} />
+      {snow && (
+        <path d="M-2.4 -11.6 L0 -15.6 L2.4 -11.6 Q0 -12.3 -2.4 -11.6 Z" fill="#F1F5F9" opacity="0.92" />
+      )}
+    </g>
+  );
+}
+
+/** Rounded deciduous oak/birch woodland tree with shaded canopy puffs. */
+function DeciduousTree({
+  x,
+  y,
+  scale = 1,
+  dark,
+  mid,
+  light,
+}: {
+  readonly x: number;
+  readonly y: number;
+  readonly scale?: number;
+  readonly dark: string;
+  readonly mid: string;
+  readonly light: string;
+}) {
+  return (
+    <g transform={`translate(${x},${y}) scale(${scale})`}>
+      <ellipse cx="0" cy="1.6" rx="5.8" ry="1.9" fill="#17281B" opacity="0.28" />
+      <path d="M-1.1 1.4 L-0.8 -4.5 H0.8 L1.1 1.4 Z" fill="#5C3A21" />
+      {/* Base shadowed canopy */}
+      <circle cx="0" cy="-7.2" r="5.4" fill={dark} />
+      <circle cx="-3.2" cy="-5.8" r="3.6" fill={dark} />
+      <circle cx="3.3" cy="-5.8" r="3.5" fill={dark} />
+      {/* Mid foliage puffs */}
+      <circle cx="-1" cy="-8.2" r="4.4" fill={mid} />
+      <circle cx="2.5" cy="-7" r="3" fill={mid} />
+      {/* Sunlit top-left highlight puff */}
+      <circle cx="-2.2" cy="-9.4" r="2.6" fill={light} opacity="0.88" />
+    </g>
+  );
+}
+
 function TerrainTileSvg({
   tile,
   season,
@@ -91,20 +249,31 @@ function TerrainTileSvg({
   } else if (tile.terrain === 'mountain') {
     fillUrl = 'url(#grad-mountain)';
   } else if (tile.terrain === 'river') {
-    fillUrl = 'url(#grad-plains)';
+    fillUrl =
+      season === 'winter'
+        ? 'url(#grad-plains-winter)'
+        : season === 'autumn'
+          ? 'url(#grad-plains-autumn)'
+          : 'url(#grad-plains)';
   } else if (season === 'winter') {
     fillUrl = 'url(#grad-plains-winter)';
   } else if (season === 'autumn') {
     fillUrl = 'url(#grad-plains-autumn)';
   }
 
-  // Deterministic pine tree palette by season
-  const treeDark =
-    season === 'autumn' ? '#7C4A22' : season === 'winter' ? '#36504B' : '#3A5834';
-  const treeMid =
-    season === 'autumn' ? '#A45A28' : season === 'winter' ? '#4F6F67' : '#4E7044';
-  const treeLight =
-    season === 'autumn' ? '#CA7E32' : season === 'winter' ? '#CBD5E1' : '#658C59';
+  // Seasonal conifer + deciduous foliage palettes
+  const pineDark = season === 'winter' ? '#253D3B' : '#26442A';
+  const pineMid = season === 'winter' ? '#3B5C56' : '#3A623B';
+  const pineLight = season === 'winter' ? '#587E77' : '#53824E';
+
+  const oakDark =
+    season === 'autumn' ? '#8A3E1B' : season === 'winter' ? '#475569' : '#355A31';
+  const oakMid =
+    season === 'autumn' ? '#C25E24' : season === 'winter' ? '#64748B' : '#4E7C41';
+  const oakLight =
+    season === 'autumn' ? '#E59A38' : season === 'winter' ? '#CBD5E1' : '#74A35B';
+
+  const riverPaths = tile.terrain === 'river' ? buildRiverPaths(riverMask, h) : null;
 
   return (
     <g transform={`translate(${ox},${oy})`}>
@@ -145,65 +314,88 @@ function TerrainTileSvg({
         </g>
       )}
 
-      {/* Forest: layered 3D shaded conifer canopies */}
+      {/* Forest: lush mixed conifer & deciduous canopy groves rooted on mossy woodland floor */}
       {tile.terrain === 'forest' && (
         <g pointerEvents="none">
-          <ellipse cx="16" cy="27" rx="8" ry="2.8" fill="#1F331E" opacity="0.28" />
-          <ellipse cx="32" cy="31" rx="9" ry="3" fill="#1F331E" opacity="0.28" />
-          <ellipse cx="14" cy="36" rx="7" ry="2.4" fill="#1F331E" opacity="0.24" />
-          {/* Back pine */}
-          <polygon points="10,25 16,10 22,25" fill={treeDark} />
-          <polygon points="13,25 16,10 21,25" fill={treeMid} opacity="0.7" />
-          {/* Tall right pine */}
-          <polygon points="23,30 31,11 39,30" fill={treeDark} />
-          <polygon points="26,30 31,11 37,30" fill={treeMid} />
-          <polygon points="28,21 31,11 34,21" fill={treeLight} opacity="0.7" />
-          {/* Foreground left pine */}
-          <polygon points="7,35 14,19 21,35" fill={treeMid} />
-          <polygon points="10.5,27 14,19 17.5,27" fill={treeLight} opacity="0.75" />
-          {/* Extra sapling for variety */}
-          {h % 2 === 0 && <polygon points="33,21 37,12 41,21" fill={treeDark} opacity="0.85" />}
+          {/* Soft woodland floor undergrowth shadow */}
+          <ellipse
+            cx="24"
+            cy="29"
+            rx="19"
+            ry="13"
+            fill={season === 'autumn' ? '#5C4024' : '#243D24'}
+            opacity="0.22"
+          />
+          {h % 3 === 0 ? (
+            <>
+              <DeciduousTree x={15} y={23} scale={0.95} dark={oakDark} mid={oakMid} light={oakLight} />
+              <LayeredPine x={33} y={25} scale={0.95} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+              <LayeredPine x={13} y={36} scale={0.9} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+              <DeciduousTree x={30} y={38} scale={1.0} dark={oakDark} mid={oakMid} light={oakLight} />
+            </>
+          ) : h % 3 === 1 ? (
+            <>
+              <LayeredPine x={16} y={22} scale={0.92} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+              <DeciduousTree x={33} y={24} scale={0.95} dark={oakDark} mid={oakMid} light={oakLight} />
+              <DeciduousTree x={18} y={36} scale={1.02} dark={oakDark} mid={oakMid} light={oakLight} />
+              <LayeredPine x={35} y={38} scale={0.9} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+            </>
+          ) : (
+            <>
+              <LayeredPine x={25} y={21} scale={0.95} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+              <DeciduousTree x={12} y={31} scale={0.92} dark={oakDark} mid={oakMid} light={oakLight} />
+              <DeciduousTree x={36} y={32} scale={0.9} dark={oakDark} mid={oakMid} light={oakLight} />
+              <LayeredPine x={24} y={39} scale={0.96} dark={pineDark} mid={pineMid} light={pineLight} snow={season === 'winter'} />
+            </>
+          )}
         </g>
       )}
 
-      {/* Hills: sunlit west & shaded east topographic mounds */}
+      {/* Hills: sculpted multi-ridge highland topography with sunlit crests & rocky scree */}
       {tile.terrain === 'hills' && (
         <g pointerEvents="none">
+          {/* Far highland ridge */}
           <path
-            d="M4 33 Q17 15 31 33 Z"
-            fill={season === 'winter' ? '#94A3B8' : '#A49374'}
-            opacity="0.75"
+            d={h % 2 === 0 ? 'M3 29 C10 15 21 15 31 28 Z' : 'M15 27 C24 14 35 14 45 28 Z'}
+            fill={season === 'winter' ? '#94A3B8' : '#A99672'}
           />
           <path
-            d="M17 20 Q24 22 31 33 L17 33 Z"
-            fill="#6E5F45"
+            d={h % 2 === 0 ? 'M17 17 C22 18 27 22 31 28 L17 28 Z' : 'M30 16 C36 18 41 22 45 28 L30 28 Z'}
+            fill="#5C4D36"
+            opacity="0.26"
+          />
+          {/* Foreground rolling ridge */}
+          <path
+            d={h % 2 === 0 ? 'M11 40 C20 22 34 22 45 40 Z' : 'M3 40 C13 22 27 22 38 40 Z'}
+            fill={season === 'winter' ? '#CBD5E1' : '#C7B691'}
+          />
+          {/* Sunlit western crest sheen */}
+          <path
+            d={h % 2 === 0 ? 'M14 38 C20 26 26 24 29 25 C24 27 21 32 19 38 Z' : 'M6 38 C12 26 18 24 21 25 C16 27 13 32 11 38 Z'}
+            fill={season === 'winter' ? '#F8FAFC' : '#E5DAC0'}
+            opacity="0.55"
+          />
+          {/* Shaded eastern slope */}
+          <path
+            d={h % 2 === 0 ? 'M29 25 C35 27 41 33 45 40 L28 40 Z' : 'M21 25 C27 27 34 33 38 40 L20 40 Z'}
+            fill="#5C4D36"
             opacity="0.24"
           />
+          {/* Subtle cartographic contour rim & scree lines */}
           <path
-            d="M15 39 Q29 19 44 39 Z"
-            fill={season === 'winter' ? '#CBD5E1' : '#C4B596'}
-            opacity="0.85"
-          />
-          <path
-            d="M29 24 Q37 28 44 39 L29 39 Z"
-            fill="#6E5F45"
-            opacity="0.22"
-          />
-          <path
-            d="M5 33 Q17 16 30 33"
+            d={h % 2 === 0 ? 'M4 29 C10 16 21 16 30 28 M12 40 C20 23 34 23 44 40' : 'M16 27 C24 15 35 15 44 28 M4 40 C13 23 27 23 37 40'}
             fill="none"
-            stroke="#78684D"
-            strokeWidth="1.2"
+            stroke="#6E5D43"
+            strokeWidth="1.05"
             strokeLinecap="round"
             opacity="0.65"
           />
           <path
-            d="M16 39 Q29 20 43 39"
+            d={h % 2 === 0 ? 'M21 34 Q25 32.5 29 34' : 'M14 34 Q18 32.5 22 34'}
             fill="none"
-            stroke="#78684D"
-            strokeWidth="1.3"
-            strokeLinecap="round"
-            opacity="0.75"
+            stroke="#7C6A4E"
+            strokeWidth="0.9"
+            opacity="0.55"
           />
         </g>
       )}
@@ -223,80 +415,116 @@ function TerrainTileSvg({
         </g>
       )}
 
-      {/* Auto-tiled Seamless River Channel with Banks & Shimmer */}
-      {tile.terrain === 'river' && (
+      {/* Organic Curved River Spline with Verdant Verge, Pebble Shore, Water Depths & Flow Streaks */}
+      {tile.terrain === 'river' && riverPaths && (
         <g pointerEvents="none">
-          {/* Outer sandy bank & water arms connecting to adjacent river tiles */}
-          <g
-            stroke={season === 'winter' ? '#94A3B8' : '#C2B28F'}
-            strokeWidth="28"
-            strokeLinecap="round"
+          {/* 1. Damp verdant riverbank verge */}
+          <path
+            d={riverPaths.main}
             fill="none"
-          >
-            <line x1="24" y1="24" x2="24" y2="24" />
-            {riverMask.n && <line x1="24" y1="24" x2="24" y2="0" />}
-            {riverMask.s && <line x1="24" y1="24" x2="24" y2="48" />}
-            {riverMask.w && <line x1="24" y1="24" x2="0" y2="24" />}
-            {riverMask.e && <line x1="24" y1="24" x2="48" y2="24" />}
-            {!riverMask.n && !riverMask.s && !riverMask.e && !riverMask.w && (
-              <line x1="8" y1="24" x2="40" y2="24" />
-            )}
-          </g>
-          {/* Main river water channel */}
-          <g
-            stroke={season === 'winter' ? '#6096BA' : '#3B7EA1'}
+            stroke={season === 'winter' ? '#B0C4D4' : '#9EB18A'}
+            strokeWidth="27"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.6"
+          />
+          {/* 2. Warm sand/pebble shore bank */}
+          <path
+            d={riverPaths.main}
+            fill="none"
+            stroke={season === 'winter' ? '#CBD5E1' : '#C9B996'}
             strokeWidth="22"
             strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* 3. Shallow coastal turquoise edge */}
+          <path
+            d={riverPaths.main}
             fill="none"
-          >
-            <line x1="24" y1="24" x2="24" y2="24" />
-            {riverMask.n && <line x1="24" y1="24" x2="24" y2="0" />}
-            {riverMask.s && <line x1="24" y1="24" x2="24" y2="48" />}
-            {riverMask.w && <line x1="24" y1="24" x2="0" y2="24" />}
-            {riverMask.e && <line x1="24" y1="24" x2="48" y2="24" />}
-            {!riverMask.n && !riverMask.s && !riverMask.e && !riverMask.w && (
-              <line x1="8" y1="24" x2="40" y2="24" />
-            )}
-          </g>
-          {/* Deep center current */}
-          <g
-            stroke={season === 'winter' ? '#467B9E' : '#2A6384'}
+            stroke={season === 'winter' ? '#7FB3D5' : '#4E98BA'}
+            strokeWidth="17.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* 4. Rich mid-channel water */}
+          <path
+            d={riverPaths.main}
+            fill="none"
+            stroke={season === 'winter' ? '#568BB0' : '#2E7096'}
             strokeWidth="12"
             strokeLinecap="round"
-            fill="none"
-          >
-            <line x1="24" y1="24" x2="24" y2="24" />
-            {riverMask.n && <line x1="24" y1="24" x2="24" y2="0" />}
-            {riverMask.s && <line x1="24" y1="24" x2="24" y2="48" />}
-            {riverMask.w && <line x1="24" y1="24" x2="0" y2="24" />}
-            {riverMask.e && <line x1="24" y1="24" x2="48" y2="24" />}
-          </g>
-          {/* Animated surface shimmer */}
-          <g
+            strokeLinejoin="round"
+          />
+          {/* Confluence / spring pool smoothing */}
+          {riverPaths.hasPool && (
+            <>
+              <circle cx="24" cy="24" r="9.5" fill={season === 'winter' ? '#7FB3D5' : '#4E98BA'} />
+              <circle cx="24" cy="24" r="6.5" fill={season === 'winter' ? '#568BB0' : '#2E7096'} />
+            </>
+          )}
+          {/* 5. Directional flowing current specular highlights */}
+          <path
             className="river-shimmer"
+            d={riverPaths.shimmer}
             fill="none"
             stroke={season === 'winter' ? '#E0F2FE' : '#BAE6FD'}
-            strokeWidth="1.15"
+            strokeWidth="1.25"
             strokeLinecap="round"
-          >
-            <path d="M16 20 Q24 17.5 32 20" />
-            <path d="M18 28 Q24 25.5 31 28" />
-          </g>
+            strokeDasharray="4.5 4.5"
+          />
+          {/* Tiny riverbank reed tufts along opposite shore */}
+          {!riverMask.n && !riverMask.w && (
+            <path d="M8 10 L7 6.5 M8 10 L9.5 7 M11 9.5 L11.5 6.5" stroke="#4D6B43" strokeWidth="0.9" strokeLinecap="round" opacity="0.7" />
+          )}
+          {!riverMask.s && !riverMask.e && (
+            <path d="M39 40 L38 36.5 M39 40 L40.5 37 M42 39.5 L42.5 36.5" stroke="#4D6B43" strokeWidth="0.9" strokeLinecap="round" opacity="0.7" />
+          )}
         </g>
       )}
 
-      {/* Embedded Metallic Iron Vein Deposit */}
+      {/* Grounded Medieval Iron Ore Crag & Exposed Metallic Vein Seam */}
       {tile.hasIronDeposit && (
-        <g transform="translate(31, 31)" pointerEvents="none">
-          <ellipse cx="7" cy="11.5" rx="6.5" ry="2.4" fill="#0F172A" opacity="0.35" />
+        <g transform="translate(24, 24)" pointerEvents="none">
+          {/* Rust-ochre iron earth staining & rock shadow */}
+          <ellipse cx="10.5" cy="17.2" rx="10.5" ry="3.2" fill="#5C2D16" opacity="0.34" />
+          {/* Dark iron-slate rocky outcrop */}
           <polygon
-            points="7,0.5 13,4 13,10 7,13.5 1,10 1,4"
-            fill="#64748B"
+            points="1.5,17 4.5,8.5 10,5.5 16.5,8 20.5,16.5 15,18.5 6,18.5"
+            fill="#334155"
             stroke="#0F172A"
-            strokeWidth="1.1"
+            strokeWidth="1"
+            strokeLinejoin="round"
           />
-          <polygon points="7,1.5 12,4.5 7,7.5 2,4.5" fill="#CBD5E1" opacity="0.85" />
-          <polygon points="7,3 10.5,5 7,7" fill="#38BDF8" />
+          {/* Sunlit upper rock facet */}
+          <polygon points="4.5,8.5 10,5.5 14.5,9.5 9.5,13 3.5,13.5" fill="#475569" />
+          {/* Raw forged-steel metallic ore seams embedded in rock */}
+          <path
+            d="M6.5 14.5 L9.8 8.5 L12.8 11 L15.5 9.2"
+            fill="none"
+            stroke="#CBD5E1"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M7.2 14.2 L10 9.2 L12.6 11.4"
+            fill="none"
+            stroke="#F8FAFC"
+            strokeWidth="0.75"
+            strokeLinecap="round"
+          />
+          {/* Warm rust-iron mineral streak */}
+          <path
+            d="M11 15.8 L14.5 12.8 L17.5 14.5"
+            fill="none"
+            stroke="#C2410C"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            opacity="0.85"
+          />
+          {/* Small metallic ore nuggets at crag base */}
+          <polygon points="3.5,17.5 5.5,15.5 8,17.5" fill="#64748B" stroke="#0F172A" strokeWidth="0.7" />
+          <polygon points="15,17.8 17.2,15.4 19.6,17.8" fill="#94A3B8" stroke="#0F172A" strokeWidth="0.7" />
         </g>
       )}
     </g>
@@ -437,62 +665,74 @@ function UnitTokenSvg({
       pointerEvents="none"
       opacity={dimmed ? 0.76 : 1}
     >
-      {/* Active Ready Pulse Ring */}
+      {/* Active Ready Pulse Ring around Tabletop Base */}
       {isViewerUnit && isActionable && (
-        <circle
+        <ellipse
           className="unit-ready-ring"
-          cx="26"
-          cy="20"
-          r="16.2"
+          cx="25"
+          cy="34"
+          rx="16.5"
+          ry="6.6"
           fill="none"
           stroke="#FDE047"
-          strokeWidth="1.6"
+          strokeWidth="1.7"
         />
       )}
 
-      {/* Token Drop Shadow */}
-      <ellipse cx="26" cy="34" rx="11.5" ry="3.2" fill="#0F172A" opacity="0.4" />
+      {/* Grounded Shadow & Tabletop Miniature Pedestal Disc */}
+      <ellipse cx="25" cy="35.6" rx="14.2" ry="5" fill="#020617" opacity="0.45" />
+      <ellipse
+        cx="25"
+        cy="34"
+        rx="13.5"
+        ry="4.8"
+        fill={c.primary}
+        stroke={
+          unit.isFortified
+            ? '#34D399'
+            : dimmed
+              ? '#64748B'
+              : '#FEF9C3'
+        }
+        strokeWidth="1.8"
+      />
+      <ellipse
+        cx="25"
+        cy="33.4"
+        rx="10.2"
+        ry="3.1"
+        fill="none"
+        stroke="#FFFFFF"
+        strokeOpacity="0.28"
+        strokeWidth="0.9"
+      />
 
-      {/* Heraldic Shield-Medallion Base */}
-      <g filter="url(#token-shadow)">
-        <path
-          d="M12.5 9.5 Q26 5.5 39.5 9.5 V20.5 C39.5 28 33.8 32.5 26 35 C18.2 32.5 12.5 28 12.5 20.5 Z"
-          fill={c.primary}
-          stroke={
-            unit.isFortified
-              ? '#34D399'
-              : dimmed
-                ? '#64748B'
-                : '#FEF9C3'
-          }
-          strokeWidth="2.1"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M14.5 11.2 Q26 7.8 37.5 11.2 V20 C37.5 26.2 32.5 30.2 26 32.4 C19.5 30.2 14.5 26.2 14.5 20 Z"
-          fill="none"
-          stroke="#FFFFFF"
-          strokeOpacity="0.22"
-          strokeWidth="0.9"
-        />
+      {/* Illustrated Miniature Soldier / Rider / Siege Figure */}
+      <g transform="translate(7, 2)" filter="url(#token-shadow)">
+        <UnitFigureSvg unitId={unit.typeId} houseId={unit.houseId} />
       </g>
 
-      {/* Unit Silhouette */}
-      <g transform="translate(14, 8)">
-        <UnitSilhouetteSvg unitId={unit.typeId} color={c.badgeText} />
-      </g>
+      {/* Fortified Entrenchment Stakes along Front Edge */}
+      {unit.isFortified && (
+        <g stroke="#451A03" strokeWidth="0.85" fill="#B45309">
+          <polygon points="12,37 14,32.5 15.8,37" />
+          <polygon points="18,38.2 20,33.2 21.8,38.2" />
+          <polygon points="28.2,38.2 30,33.2 32,38.2" />
+          <polygon points="34.2,37 36,32.5 38,37" />
+        </g>
+      )}
 
       {/* Unit HP Bar */}
-      <rect x="12" y="36.5" width="28" height="4.8" rx="2" fill="#0F172A" opacity="0.95" />
-      <rect x="12.8" y="37.3" width={26.4 * hpRatio} height="3.2" rx="1.2" fill={hpColor} />
+      <rect x="11" y="39.5" width="28" height="4.8" rx="2" fill="#0F172A" opacity="0.95" />
+      <rect x="11.8" y="40.3" width={26.4 * hpRatio} height="3.2" rx="1.2" fill={hpColor} />
 
       {/* Veterancy Chevrons (Top-Left) */}
       {rank > 0 && (
-        <g transform="translate(8, 5)">
+        <g transform="translate(4, 3)">
           <circle
             cx="5"
             cy="5"
-            r="5.5"
+            r="5.2"
             fill="#0F172A"
             stroke={rank === 2 ? '#FACC15' : '#CBD5E1'}
             strokeWidth="1.2"
@@ -508,22 +748,9 @@ function UnitTokenSvg({
         </g>
       )}
 
-      {/* Fortified Bastion Badge (Bottom-Right) */}
-      {unit.isFortified && (
-        <g transform="translate(34, 24)">
-          <path
-            d="M5 0.5 L9.5 2.5 V5.5 C9.5 8 7.6 9.6 5 10.6 C2.4 9.6 0.5 8 0.5 5.5 V2.5 Z"
-            fill="#065F46"
-            stroke="#34D399"
-            strokeWidth="1.2"
-          />
-          <path d="M3.2 5.4 L4.6 6.8 L7.2 3.8" stroke="#D1FAE5" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-        </g>
-      )}
-
       {/* Supply-Severed / Mutiny Warning Pip (Top-Right) */}
       {hasPenalty && (
-        <g transform="translate(35, 4)">
+        <g transform="translate(35, 3)">
           <circle cx="4.5" cy="4.5" r="4.8" fill="#DC2626" stroke="#FFFFFF" strokeWidth="1.1" />
           <text x="4.5" y="7.2" textAnchor="middle" fontSize="7.2" fontWeight="bold" fill="#FFFFFF">
             !

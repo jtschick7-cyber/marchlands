@@ -56,7 +56,7 @@ import {
   type AttackTargetInfo,
 } from '../engine/queries.ts';
 import { getHouseKeeps, getKeepAt, getUnitAt } from '../engine/stateHelpers.ts';
-import { HouseSigilSvg, ResourceIconSvg } from './svg/HeraldrySvg.tsx';
+import { HouseSigilSvg, ResourceIconSvg, UnitFigureSvg } from './svg/HeraldrySvg.tsx';
 
 interface BottomDrawerProps {
   readonly state: GameState;
@@ -463,44 +463,51 @@ export function BottomDrawer({
 
             return (
               <div className="space-y-1.5">
-                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-700/90 space-y-1">
-                  <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="font-serif-march font-bold text-white truncate">{def.name}</span>
-                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] font-bold uppercase text-sky-300">
-                        {def.unitClass}
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                          rankInfo.rank === 2
-                            ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
-                            : rankInfo.rank === 1
-                              ? 'bg-slate-700 text-slate-100'
-                              : 'bg-slate-900 text-slate-400'
-                        }`}
-                      >
-                        {rankInfo.title}
-                        {rankInfo.nextXp !== null ? ` ${unitOnTile.xp ?? 0}/${rankInfo.nextXp}` : ' ★'}
+                <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-700/90 flex items-center gap-2">
+                  <div className="shrink-0 w-10 h-10 rounded-lg bg-slate-900/90 border border-slate-700 flex items-center justify-center">
+                    <svg width="34" height="34" viewBox="0 0 36 36" aria-hidden="true">
+                      <UnitFigureSvg unitId={unitOnTile.typeId} houseId={unitOnTile.houseId} />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-serif-march font-bold text-white truncate">{def.name}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] font-bold uppercase text-sky-300">
+                          {def.unitClass}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            rankInfo.rank === 2
+                              ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                              : rankInfo.rank === 1
+                                ? 'bg-slate-700 text-slate-100'
+                                : 'bg-slate-900 text-slate-400'
+                          }`}
+                        >
+                          {rankInfo.title}
+                          {rankInfo.nextXp !== null ? ` ${unitOnTile.xp ?? 0}/${rankInfo.nextXp}` : ' ★'}
+                        </span>
+                      </div>
+                      <span className="font-bold text-emerald-400 shrink-0">
+                        {unitOnTile.hp}/{unitOnTile.maxHp} HP
                       </span>
                     </div>
-                    <span className="font-bold text-emerald-400 shrink-0">
-                      {unitOnTile.hp}/{unitOnTile.maxHp} HP
-                    </span>
-                  </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-300 tabular-nums">
-                    <span>ATK {def.structureAttack ? `${def.attack} (Siege ${def.structureAttack})` : def.attack}</span>
-                    <span>• DEF {def.defense}</span>
-                    <span>• MOV {unitOnTile.remainingMovement}/{def.movement}</span>
-                    <span>• RNG {def.range}</span>
-                    {unitOnTile.isFortified && (
-                      <span className="text-emerald-300 font-bold">• FORTIFIED (+15% DEF)</span>
-                    )}
-                    {unitOnTile.homeKeepId === 'orphaned' && (
-                      <span className="text-red-400 font-bold">• SUPPLY-SEVERED (−25%)</span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-300 tabular-nums">
+                      <span>ATK {def.structureAttack ? `${def.attack} (Siege ${def.structureAttack})` : def.attack}</span>
+                      <span>• DEF {def.defense}</span>
+                      <span>• MOV {unitOnTile.remainingMovement}/{def.movement}</span>
+                      <span>• RNG {def.range}</span>
+                      {unitOnTile.isFortified && (
+                        <span className="text-emerald-300 font-bold">• FORTIFIED (+15% DEF)</span>
+                      )}
+                      {unitOnTile.homeKeepId === 'orphaned' && (
+                        <span className="text-red-400 font-bold">• SUPPLY-SEVERED (−25%)</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-snug">{def.flavor}</p>
                   </div>
-                  <p className="text-[10px] text-slate-400 leading-snug">{def.flavor}</p>
                 </div>
 
                 {/* Tactical Action Row */}
@@ -666,14 +673,19 @@ export function BottomDrawer({
                       type="button"
                       disabled={!ok || !canCommand}
                       onClick={() => onTrainUnit(keepOnTile.id, uid)}
-                      className="touch-target shrink-0 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-600 hover:border-amber-400/70 disabled:opacity-40 text-left active:bg-slate-700"
+                      className="touch-target shrink-0 px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-600 hover:border-amber-400/70 disabled:opacity-40 text-left active:bg-slate-700 flex items-center gap-1.5"
                     >
-                      <div className="text-xs font-bold text-slate-100">{def.name}</div>
-                      <div className="text-[10px] text-amber-300 tabular-nums">
-                        {cost}M{upkeep > 0 ? ` • ${upkeep}C/t` : ' • Free'}
-                      </div>
-                      <div className="text-[9px] text-slate-400 tabular-nums">
-                        A{def.structureAttack ?? def.attack}/D{def.defense}/M{def.movement}
+                      <svg width="28" height="28" viewBox="0 0 36 36" aria-hidden="true" className="shrink-0">
+                        <UnitFigureSvg unitId={uid} houseId={viewerHouseId} />
+                      </svg>
+                      <div>
+                        <div className="text-xs font-bold text-slate-100">{def.name}</div>
+                        <div className="text-[10px] text-amber-300 tabular-nums">
+                          {cost}M{upkeep > 0 ? ` • ${upkeep}C/t` : ' • Free'}
+                        </div>
+                        <div className="text-[9px] text-slate-400 tabular-nums">
+                          A{def.structureAttack ?? def.attack}/D{def.defense}/M{def.movement}
+                        </div>
                       </div>
                     </button>
                   );
