@@ -67,26 +67,28 @@ function tileHash(x: number, y: number): number {
 
 interface WorldRiverNetwork {
   readonly mainPath: string;
-  readonly shimmerPath: string;
-  readonly poolCenters: ReadonlyArray<{ x: number; y: number }>;
+  readonly swellCircles: ReadonlyArray<{ x: number; y: number; r: number }>;
+  readonly wavelets: ReadonlyArray<{ d: string; opacity: number }>;
   readonly wideCorners: ReadonlyArray<{ x: number; y: number }>;
-  readonly reedSpots: ReadonlyArray<{ x: number; y: number; flip: boolean }>;
+  readonly reedSpots: ReadonlyArray<{ x: number; y: number }>;
+  readonly pebbleSpots: ReadonlyArray<{ x: number; y: number; rx: number; ry: number }>;
 }
 
 /**
  * Builds ONE unified world-space SVG river network across all explored river tiles.
- * Every straight run and bend enters/exits tile midpoints with perpendicular tangents
- * (C1 continuity), eliminating tile-seam caps, walls, and kinks completely.
+ * Renders carved, organic, variable-width water with staggered water wavelets,
+ * river stones, and shore reeds (zero centered highway markings, zero clipPath bugs).
  */
 function buildWorldRiverNetwork(
   allTiles: Record<CoordKey, TileState>,
   exploredRiverTiles: readonly TileState[],
 ): WorldRiverNetwork {
   const mainSegs: string[] = [];
-  const shimmerSegs: string[] = [];
-  const poolCenters: Array<{ x: number; y: number }> = [];
+  const swellCircles: Array<{ x: number; y: number; r: number }> = [];
+  const wavelets: Array<{ d: string; opacity: number }> = [];
   const wideCorners: Array<{ x: number; y: number }> = [];
-  const reedSpots: Array<{ x: number; y: number; flip: boolean }> = [];
+  const reedSpots: Array<{ x: number; y: number }> = [];
+  const pebbleSpots: Array<{ x: number; y: number; rx: number; ry: number }> = [];
 
   for (const tile of exploredRiverTiles) {
     const ox = tile.x * TILE_SIZE;
@@ -94,7 +96,7 @@ function buildWorldRiverNetwork(
     const cx = ox + 24;
     const cy = oy + 24;
     const h = tileHash(tile.x, tile.y);
-    const sway = (h % 2 === 0 ? 1 : -1) * (2.6 + (h % 3) * 0.8);
+    const sway = (h % 2 === 0 ? 1 : -1) * (2.8 + (h % 3) * 0.9);
 
     const n = tile.y === 0 || allTiles[`${tile.x},${tile.y - 1}`]?.terrain === 'river';
     const s = tile.y === GRID_SIZE - 1 || allTiles[`${tile.x},${tile.y + 1}`]?.terrain === 'river';
@@ -113,88 +115,114 @@ function buildWorldRiverNetwork(
 
     const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
 
+    // Subtle organic width swells so the shoreline breathes naturally instead of parallel curbs
+    if (h % 3 !== 0) {
+      swellCircles.push({
+        x: cx + ((h % 5) - 2) * 1.4,
+        y: cy + (((h >> 2) % 5) - 2) * 1.4,
+        r: 12.2 + (h % 3) * 1.1,
+      });
+    }
+
     if (count === 0) {
       mainSegs.push(`M${ox + 15},${cy} Q${cx},${cy - 4} ${ox + 33},${cy}`);
-      shimmerSegs.push(`M${ox + 17},${cy} Q${cx},${cy - 2} ${ox + 31},${cy}`);
-      poolCenters.push({ x: cx, y: cy });
+      swellCircles.push({ x: cx, y: cy, r: 14 });
     } else if (count === 1) {
-      if (n) {
-        mainSegs.push(`M${cx},${ny} C${cx},${oy + 12} ${cx + sway},${oy + 18} ${cx},${cy}`);
-        shimmerSegs.push(`M${cx},${oy + 4} L${cx},${cy - 2}`);
-      } else if (s) {
-        mainSegs.push(`M${cx},${sy} C${cx},${oy + 36} ${cx + sway},${oy + 30} ${cx},${cy}`);
-        shimmerSegs.push(`M${cx},${oy + 44} L${cx},${cy + 2}`);
-      } else if (w) {
-        mainSegs.push(`M${wx},${cy} C${ox + 12},${cy} ${ox + 18},${cy + sway} ${cx},${cy}`);
-        shimmerSegs.push(`M${ox + 4},${cy} L${cx - 2},${cy}`);
-      } else {
-        mainSegs.push(`M${ex},${cy} C${ox + 36},${cy} ${ox + 30},${cy + sway} ${cx},${cy}`);
-        shimmerSegs.push(`M${ox + 44},${cy} L${cx + 2},${cy}`);
-      }
-      poolCenters.push({ x: cx, y: cy });
+      if (n) mainSegs.push(`M${cx},${ny} C${cx},${oy + 12} ${cx + sway},${oy + 18} ${cx},${cy}`);
+      else if (s) mainSegs.push(`M${cx},${sy} C${cx},${oy + 36} ${cx + sway},${oy + 30} ${cx},${cy}`);
+      else if (w) mainSegs.push(`M${wx},${cy} C${ox + 12},${cy} ${ox + 18},${cy + sway} ${cx},${cy}`);
+      else mainSegs.push(`M${ex},${cy} C${ox + 36},${cy} ${ox + 30},${cy + sway} ${cx},${cy}`);
+      swellCircles.push({ x: cx, y: cy, r: 13.5 });
     } else if (count === 2) {
       if (n && s) {
-        // C1-continuous vertical meander (perpendicular entry & exit tangents)
         mainSegs.push(
           `M${cx},${ny} C${cx},${oy + 11} ${cx + sway},${oy + 17} ${cx},${cy} C${cx - sway},${oy + 31} ${cx},${oy + 37} ${cx},${sy}`,
         );
-        shimmerSegs.push(
-          `M${cx},${oy + 5} C${cx + sway * 0.5},${oy + 17} ${cx - sway * 0.5},${oy + 31} ${cx},${oy + 43}`,
-        );
       } else if (w && e) {
-        // C1-continuous horizontal meander
         mainSegs.push(
           `M${wx},${cy} C${ox + 11},${cy} ${ox + 17},${cy + sway} ${cx},${cy} C${ox + 31},${cy - sway} ${ox + 37},${cy} ${ex},${cy}`,
         );
-        shimmerSegs.push(
-          `M${ox + 5},${cy} C${ox + 17},${cy + sway * 0.5} ${ox + 31},${cy - sway * 0.5} ${ox + 43},${cy}`,
-        );
       } else if (n && e) {
-        // Sweeping quarter-bend (vertical tangent at N, horizontal tangent at E)
         mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${ex},${cy}`);
-        shimmerSegs.push(`M${cx + 1},${oy + 6} Q${cx + 3},${cy - 3} ${ox + 42},${cy - 1}`);
       } else if (n && w) {
         mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${wx},${cy}`);
-        shimmerSegs.push(`M${cx - 1},${oy + 6} Q${cx - 3},${cy - 3} ${ox + 6},${cy - 1}`);
       } else if (s && e) {
         mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${ex},${cy}`);
-        shimmerSegs.push(`M${cx + 1},${oy + 42} Q${cx + 3},${cy + 3} ${ox + 42},${cy + 1}`);
       } else {
         mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${wx},${cy}`);
-        shimmerSegs.push(`M${cx - 1},${oy + 42} Q${cx - 3},${cy + 3} ${ox + 6},${cy + 1}`);
       }
     } else {
-      // 3-way T-junction or 4-way confluence: smooth curved arms meeting seamlessly
-      if (n && s) {
-        mainSegs.push(`M${cx},${ny} L${cx},${sy}`);
-        shimmerSegs.push(`M${cx},${oy + 5} L${cx},${oy + 43}`);
-      }
-      if (w && e) {
-        mainSegs.push(`M${wx},${cy} L${ex},${cy}`);
-        shimmerSegs.push(`M${ox + 5},${cy} L${ox + 43},${cy}`);
-      }
+      if (n && s) mainSegs.push(`M${cx},${ny} L${cx},${sy}`);
+      if (w && e) mainSegs.push(`M${wx},${cy} L${ex},${cy}`);
       if (n && e) mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${ex},${cy}`);
       if (n && w) mainSegs.push(`M${cx},${ny} Q${cx},${cy} ${wx},${cy}`);
       if (s && e) mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${ex},${cy}`);
       if (s && w) mainSegs.push(`M${cx},${sy} Q${cx},${cy} ${wx},${cy}`);
-      poolCenters.push({ x: cx, y: cy });
+      swellCircles.push({ x: cx, y: cy, r: 14.5 });
     }
 
-    // Add tiny riverbank reed tufts on dry corners
-    if (!n && !w && h % 2 === 0) {
-      reedSpots.push({ x: ox + 7, y: oy + 10, flip: false });
+    // Staggered, asymmetric gentle water wavelets (soft ripples — NEVER a dashed road divider!)
+    const wShiftX = ((h % 7) - 3) * 1.4;
+    const wShiftY = (((h >> 1) % 7) - 3) * 1.4;
+    if (n && s && !e && !w) {
+      // Gentle horizontal-crested water ripples across vertical flow
+      wavelets.push({
+        d: `M${cx - 5 + wShiftX * 0.4},${oy + 12} Q${cx - 1 + wShiftX * 0.4},${oy + 10.5} ${cx + 3 + wShiftX * 0.4},${oy + 12}`,
+        opacity: 0.55,
+      });
+      wavelets.push({
+        d: `M${cx - 2 - wShiftX * 0.3},${oy + 27} Q${cx + 2.5 - wShiftX * 0.3},${oy + 25.5} ${cx + 6.5 - wShiftX * 0.3},${oy + 27}`,
+        opacity: 0.48,
+      });
+      if (h % 2 === 0) {
+        wavelets.push({
+          d: `M${cx - 6},${oy + 38} Q${cx - 2.5},${oy + 36.8} ${cx + 1},${oy + 38}`,
+          opacity: 0.42,
+        });
+      }
+    } else if (w && e && !n && !s) {
+      // Staggered off-center gentle surface ripples on horizontal flow
+      wavelets.push({
+        d: `M${ox + 10},${cy - 4 + wShiftY * 0.4} Q${ox + 15},${cy - 5.6 + wShiftY * 0.4} ${ox + 20},${cy - 4 + wShiftY * 0.4}`,
+        opacity: 0.55,
+      });
+      wavelets.push({
+        d: `M${ox + 26},${cy + 3.5 - wShiftY * 0.3} Q${ox + 31.5},${cy + 2 - wShiftY * 0.3} ${ox + 37},${cy + 3.5 - wShiftY * 0.3}`,
+        opacity: 0.48,
+      });
+    } else {
+      // Bends & confluences: soft curved eddy wavelets near the bend interior
+      wavelets.push({
+        d: `M${cx - 5 + wShiftX * 0.3},${cy - 2} Q${cx},${cy - 4} ${cx + 5 + wShiftX * 0.3},${cy - 2}`,
+        opacity: 0.52,
+      });
+      wavelets.push({
+        d: `M${cx - 3},${cy + 4} Q${cx + 1.5},${cy + 2.4} ${cx + 6},${cy + 4}`,
+        opacity: 0.44,
+      });
     }
-    if (!s && !e && h % 2 === 1) {
-      reedSpots.push({ x: ox + 40, y: oy + 40, flip: true });
+
+    // Bankside cattail reeds & smooth pale shore pebbles on dry corners
+    if (!n && !w) {
+      if (h % 2 === 0) reedSpots.push({ x: ox + 6.5, y: oy + 10 });
+      else pebbleSpots.push({ x: ox + 9, y: oy + 10, rx: 2.2, ry: 1.4 });
+    }
+    if (!s && !e) {
+      if (h % 2 === 1) reedSpots.push({ x: ox + 40, y: oy + 40 });
+      else pebbleSpots.push({ x: ox + 38, y: oy + 39, rx: 2.4, ry: 1.5 });
+    }
+    if (!n && !e && h % 3 === 0) {
+      pebbleSpots.push({ x: ox + 39, y: oy + 9, rx: 1.9, ry: 1.2 });
     }
   }
 
   return {
     mainPath: mainSegs.join(' '),
-    shimmerPath: shimmerSegs.join(' '),
-    poolCenters,
+    swellCircles,
+    wavelets,
     wideCorners,
     reedSpots,
+    pebbleSpots,
   };
 }
 
@@ -1025,19 +1053,6 @@ export function MapBoard({
             <filter id="keep-shadow" x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="2" stdDeviation="1.6" floodColor="#020617" floodOpacity="0.45" />
             </filter>
-
-            {/* Fog-Honest Clip Mask for Unified Multi-Pass River Layer */}
-            <clipPath id="explored-tiles-clip">
-              {exploredTiles.map((tile) => (
-                <rect
-                  key={`clip_${tile.key}`}
-                  x={tile.x * TILE_SIZE}
-                  y={tile.y * TILE_SIZE}
-                  width={TILE_SIZE}
-                  height={TILE_SIZE}
-                />
-              ))}
-            </clipPath>
           </defs>
 
           {/* Outer Cartographic Frame */}
@@ -1048,62 +1063,87 @@ export function MapBoard({
             <TerrainTileSvg key={`t_${tile.key}`} tile={tile} season={season} />
           ))}
 
-          {/* Layer 1b: Unified 6-Pass Seamless River Network (Zero Tile-Boundary Caps or Seams) */}
+          {/* Layer 1b: Carved Organic River Network (No clipPath — masked cleanly by Layer 5 Fog) */}
           {riverNetwork.mainPath.length > 0 && (
-            <g clipPath="url(#explored-tiles-clip)" pointerEvents="none">
-              {/* Pass 1: Lush verdant riverbank meadow verge */}
+            <g pointerEvents="none">
+              {/* Pass 1: Lush damp meadow verge */}
               <path
                 d={riverNetwork.mainPath}
                 fill="none"
-                stroke={season === 'winter' ? '#A4B9C9' : '#96AC82'}
-                strokeWidth="31"
+                stroke={season === 'winter' ? '#A4B9C9' : '#94AD7F'}
+                strokeWidth="33"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity="0.55"
+                opacity="0.48"
               />
-              {/* Pass 2: Warm pebble-sand shore bank */}
+              {riverNetwork.swellCircles.map((c, i) => (
+                <circle
+                  key={`sw_v_${i}`}
+                  cx={c.x}
+                  cy={c.y}
+                  r={c.r + 4.5}
+                  fill={season === 'winter' ? '#A4B9C9' : '#94AD7F'}
+                  opacity="0.42"
+                />
+              ))}
+
+              {/* Pass 2: Soft natural earth & pebble shoreline */}
               <path
                 d={riverNetwork.mainPath}
                 fill="none"
-                stroke={season === 'winter' ? '#CBD5E1' : '#C9B996'}
-                strokeWidth="25"
+                stroke={season === 'winter' ? '#CBD5E1' : '#BBA984'}
+                strokeWidth="27"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+              {riverNetwork.swellCircles.map((c, i) => (
+                <circle
+                  key={`sw_b_${i}`}
+                  cx={c.x}
+                  cy={c.y}
+                  r={c.r + 1.8}
+                  fill={season === 'winter' ? '#CBD5E1' : '#BBA984'}
+                />
+              ))}
               {riverNetwork.wideCorners.map((pt, i) => (
                 <circle
                   key={`wc_b_${i}`}
                   cx={pt.x}
                   cy={pt.y}
-                  r="14"
-                  fill={season === 'winter' ? '#CBD5E1' : '#C9B996'}
+                  r="15"
+                  fill={season === 'winter' ? '#CBD5E1' : '#BBA984'}
                 />
               ))}
-              {/* Pass 3: Crisp cartographic shoreline contour */}
+
+              {/* Pass 3: Recessed north-west bank shadow (carves river INTO the land) */}
+              <g transform="translate(-0.9, -1.1)">
+                <path
+                  d={riverNetwork.mainPath}
+                  fill="none"
+                  stroke={season === 'winter' ? '#487696' : '#245878'}
+                  strokeWidth="23.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.72"
+                />
+              </g>
+
+              {/* Pass 4: Wide organic shallow turquoise-cerulean water body */}
               <path
                 d={riverNetwork.mainPath}
                 fill="none"
-                stroke={season === 'winter' ? '#4B7B9C' : '#265E80'}
-                strokeWidth="20.6"
+                stroke={season === 'winter' ? '#7CB4D6' : '#4E9FC4'}
+                strokeWidth="22.4"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              {/* Pass 4: Continuous shallow coastal turquoise water */}
-              <path
-                d={riverNetwork.mainPath}
-                fill="none"
-                stroke={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
-                strokeWidth="18.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {riverNetwork.poolCenters.map((pt, i) => (
+              {riverNetwork.swellCircles.map((c, i) => (
                 <circle
-                  key={`pl_s_${i}`}
-                  cx={pt.x}
-                  cy={pt.y}
-                  r="9.8"
-                  fill={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
+                  key={`sw_w_${i}`}
+                  cx={c.x}
+                  cy={c.y}
+                  r={c.r}
+                  fill={season === 'winter' ? '#7CB4D6' : '#4E9FC4'}
                 />
               ))}
               {riverNetwork.wideCorners.map((pt, i) => (
@@ -1111,26 +1151,29 @@ export function MapBoard({
                   key={`wc_s_${i}`}
                   cx={pt.x}
                   cy={pt.y}
-                  r="10.5"
-                  fill={season === 'winter' ? '#7DB5D8' : '#4E9EC2'}
+                  r="12.5"
+                  fill={season === 'winter' ? '#7CB4D6' : '#4E9FC4'}
                 />
               ))}
-              {/* Pass 5: Rich unbroken deep river-blue center current */}
+
+              {/* Pass 5: Soft translucent deep-channel water depth */}
               <path
                 d={riverNetwork.mainPath}
                 fill="none"
-                stroke={season === 'winter' ? '#548BB0' : '#2A6F97'}
-                strokeWidth="11.8"
+                stroke={season === 'winter' ? '#5187AC' : '#296E96'}
+                strokeWidth="13.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                opacity="0.72"
               />
-              {riverNetwork.poolCenters.map((pt, i) => (
+              {riverNetwork.swellCircles.map((c, i) => (
                 <circle
-                  key={`pl_d_${i}`}
-                  cx={pt.x}
-                  cy={pt.y}
-                  r="6.4"
-                  fill={season === 'winter' ? '#548BB0' : '#2A6F97'}
+                  key={`sw_d_${i}`}
+                  cx={c.x}
+                  cy={c.y}
+                  r={c.r * 0.56}
+                  fill={season === 'winter' ? '#5187AC' : '#296E96'}
+                  opacity="0.62"
                 />
               ))}
               {riverNetwork.wideCorners.map((pt, i) => (
@@ -1138,31 +1181,48 @@ export function MapBoard({
                   key={`wc_d_${i}`}
                   cx={pt.x}
                   cy={pt.y}
-                  r="6.5"
-                  fill={season === 'winter' ? '#548BB0' : '#2A6F97'}
+                  r="8"
+                  fill={season === 'winter' ? '#5187AC' : '#296E96'}
+                  opacity="0.68"
                 />
               ))}
-              {/* Pass 6: Directional animated current highlights & shore reeds */}
-              <path
+
+              {/* Pass 6: Staggered asymmetric water wavelets, shore stones & reeds */}
+              <g
                 className="river-shimmer"
-                d={riverNetwork.shimmerPath}
                 fill="none"
                 stroke={season === 'winter' ? '#E0F2FE' : '#BAE6FD'}
-                strokeWidth="1.35"
+                strokeWidth="1.25"
                 strokeLinecap="round"
-                strokeDasharray="6 7"
-              />
+              >
+                {riverNetwork.wavelets.map((w, i) => (
+                  <path key={`wv_${i}`} d={w.d} opacity={w.opacity} />
+                ))}
+              </g>
+              {riverNetwork.pebbleSpots.map((p, i) => (
+                <ellipse
+                  key={`peb_${i}`}
+                  cx={p.x}
+                  cy={p.y}
+                  rx={p.rx}
+                  ry={p.ry}
+                  fill={season === 'winter' ? '#94A3B8' : '#8C7E66'}
+                  stroke="#574E3E"
+                  strokeWidth="0.5"
+                  opacity="0.78"
+                />
+              ))}
               {riverNetwork.reedSpots.map((r, i) => (
                 <g
                   key={`reed_${i}`}
                   transform={`translate(${r.x},${r.y})`}
-                  stroke={season === 'winter' ? '#64748B' : '#4B6B41'}
-                  strokeWidth="0.95"
+                  stroke={season === 'winter' ? '#64748B' : '#45683B'}
+                  strokeWidth="1"
                   strokeLinecap="round"
-                  opacity="0.72"
+                  opacity="0.78"
                 >
-                  <path d="M0 0 L-1.2 -3.6 M0 0 L1.2 -3.2 M3 -0.4 L3.6 -3.5" />
-                  <circle cx="-1.2" cy="-3.6" r="0.65" fill="#78350F" stroke="none" />
+                  <path d="M0 0 L-1.3 -3.8 M0 0 L1.2 -3.3 M3 -0.4 L3.7 -3.6" />
+                  <circle cx="-1.3" cy="-3.8" r="0.7" fill="#78350F" stroke="none" />
                 </g>
               ))}
             </g>
@@ -1325,7 +1385,28 @@ export function MapBoard({
             const ox = tile.x * TILE_SIZE;
             const oy = tile.y * TILE_SIZE;
             if (fog === 'unexplored') {
-              return null; // Base board already renders fog-pattern
+              // Cover unexplored tiles adjacent (orthogonal or diagonal) to explored tiles so rivers stay strictly fog-honest
+              const bordersExplored =
+                (fogMap[`${tile.x},${tile.y - 1}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x},${tile.y + 1}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x - 1},${tile.y}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x + 1},${tile.y}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x - 1},${tile.y - 1}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x + 1},${tile.y - 1}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x - 1},${tile.y + 1}`] ?? 'unexplored') !== 'unexplored' ||
+                (fogMap[`${tile.x + 1},${tile.y + 1}`] ?? 'unexplored') !== 'unexplored';
+              if (!bordersExplored) return null;
+              return (
+                <rect
+                  key={`unexp_${tile.key}`}
+                  x={ox}
+                  y={oy}
+                  width={TILE_SIZE}
+                  height={TILE_SIZE}
+                  fill="url(#fog-pattern)"
+                  pointerEvents="none"
+                />
+              );
             }
             // Explored (remembered) dusk veil + soft shadow edges against unexplored neighbors
             const nUnexp = fogMap[`${tile.x},${tile.y - 1}`] === 'unexplored';
