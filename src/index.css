@@ -4,6 +4,7 @@
   --font-serif: 'Cinzel', 'Georgia', serif;
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --surface-gutter: #0B1120;
+  --surface-top: #0F172A;
   --surface-chrome: #162033;
   --surface-border: #334155;
   --surface-vellum: #FAF7F0;
@@ -12,6 +13,21 @@
   --res-food: #16A34A;
   --res-mat: #D97706;
   --res-coin: #EAB308;
+  --safe-top-offset: calc(env(safe-area-inset-top, 0px) + 8px);
+}
+
+@supports (-webkit-touch-callout: none) {
+  :root {
+    /*
+     * Modern iOS WebKit applies a progressive top-edge blur band in edge-to-edge /
+     * standalone PWA viewports that feathers ~20px below env(safe-area-inset-top).
+     * min(22px, env(safe-area-inset-top, 0px)) evaluates to 0px when no top inset is
+     * active (zero extra gap) and adds 22px clearance under Dynamic Island / notch insets.
+     */
+    --safe-top-offset: calc(
+      env(safe-area-inset-top, 0px) + 8px + min(22px, env(safe-area-inset-top, 0px))
+    );
+  }
 }
 
 html,
@@ -21,7 +37,7 @@ body,
   padding: 0;
   width: 100%;
   height: 100%;
-  background-color: var(--surface-gutter);
+  background-color: var(--surface-top);
   color: #F8FAFC;
   font-family: var(--font-sans);
   overflow-x: hidden;
@@ -29,6 +45,10 @@ body,
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  background-color: var(--surface-gutter);
 }
 
 .font-serif-march {
@@ -41,11 +61,30 @@ body,
 }
 
 .safe-top {
-  padding-top: max(8px, env(safe-area-inset-top));
+  padding-top: var(--safe-top-offset);
 }
 
 .safe-bottom {
   padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+/* Solid opaque top-edge backing bar for iOS WebKit's status-bar color sampler */
+.ios-status-bar-shield {
+  display: none;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .ios-status-bar-shield {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top, 0px);
+    background-color: var(--surface-top);
+    z-index: 40;
+    pointer-events: none;
+  }
 }
 
 /* Enforce 44x44 minimum interactive touch targets */
@@ -55,6 +94,12 @@ body,
 }
 
 /* Medieval iron-slate & aged vellum surfaces */
+.surface-iron-top {
+  background-color: var(--surface-top);
+  background-image: linear-gradient(180deg, #0F172A 0%, #162033 100%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+
 .surface-iron {
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.97) 0%, rgba(15, 23, 42, 0.98) 100%);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);

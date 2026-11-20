@@ -81,7 +81,7 @@ export function TopHud({
   };
 
   return (
-    <header className="relative z-30 w-full surface-iron border-b border-amber-500/25 backdrop-blur-md safe-top px-2 pb-1.5">
+    <header className="relative z-30 w-full surface-iron-top border-b border-amber-500/25 safe-top px-2 pb-1.5">
       {/* Row 1: House Sigil, Turn/Season, Realm Ledger, Crown Council & Menu */}
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0">

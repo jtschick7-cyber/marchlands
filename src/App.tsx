@@ -642,6 +642,7 @@ export default function App() {
   if (!gameState) {
     return (
       <div className="h-full w-full overflow-x-hidden bg-[#0B1120]">
+        <div className="ios-status-bar-shield" aria-hidden="true" />
         <TitleScreen
           autosave={autosave}
           onResumeAutosave={handleResumeAutosave}
@@ -670,6 +671,7 @@ export default function App() {
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#0B1120]">
+      <div className="ios-status-bar-shield" aria-hidden="true" />
       <TopHud
         state={gameState}
         viewerHouseId={viewerHouseId}
@@ -919,7 +921,8 @@ export default function App() {
       {/* Non-Blocking Toast Banner */}
       {ui.toastMessage && (
         <div
-          className={`fixed top-16 left-3 right-3 z-50 mx-auto max-w-md rounded-xl px-3 py-2 text-xs font-semibold text-center shadow-xl border ${
+          style={{ top: 'calc(var(--safe-top-offset, 8px) + 3.75rem)' }}
+          className={`fixed left-3 right-3 z-50 mx-auto max-w-md rounded-xl px-3 py-2 text-xs font-semibold text-center shadow-xl border ${
             ui.toastTone === 'error'
               ? 'bg-red-950/95 border-red-500 text-red-100'
               : ui.toastTone === 'warn'
