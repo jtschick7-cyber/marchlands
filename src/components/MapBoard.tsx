@@ -1,15 +1,14 @@
 /**
- * Marchlands (Spec v0.3) — 22x22 Cartographic Inline SVG MapBoard
+ * Marchlands (Spec v2.0) — Dynamic 22x22 / 28x28 / 34x34 Cartographic Inline SVG MapBoard
  *
- * Upgraded visual rendering (100% inline SVG, zero external rasters):
- * - Gradients & seasonal atmosphere (Spring / Summer / Autumn / Winter)
- * - Auto-tiled seamless rivers with banks and shimmer ripples
- * - Deterministic per-tile terrain details (no Math.random())
- * - Feathered cartographic Fog of War
- * - Detailed Tier-1 & Tier-2 Keeps with on-map nameplates & Food bars
- * - Heraldic shield-medallion Unit tokens with Veterancy chevrons, Fortify badges,
- *   ready-pulse rings, smooth movement transitions & floating action callouts
- * - Toggleable tile yield badges on owned territory
+ * Upgraded v2.0 visual rendering (100% inline SVG, zero external rasters):
+ * - Dynamic state.gridSize support (22x22 Compact, 28x28 Standard, 34x34 Grand March)
+ * - Connected cobbled Road network, Orthogonal Wall Links, Level-2 'II' badges
+ * - Frontier Outposts (3x3 territories + structure HP bars), Central Ruined High Seat
+ * - Tier-1, Tier-2 & Tier-3 Grand Citadel architecture + Forge Seat crest
+ * - Lord-Commander crown badge, Ranged Overwatch stance ring, Deployed Trebuchet brace
+ * - 4-Resource yield badges (Food, Materials, Iron, Coin)
+ * - Interactive 34x34 Tactical Minimap & Quick-Jump bar (Capital, Commander, Keeps, Outposts, High Seat)
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,15 +18,17 @@ import type {
   GameState,
   HouseId,
   KeepState,
+  OutpostState,
   Season,
   TileState,
   UnitState,
 } from '../types/game.ts';
 import {
   BANDIT_MAX_HP,
-  FORTIFICATION_MAX_HP,
-  GRID_SIZE,
+  HIGH_SEAT_MAX_HP,
   HOUSES,
+  IMPROVEMENTS,
+  OUTPOST_MAX_HP,
   VILLAGE_MAX_HP,
 } from '../data/index.ts';
 import { getUnitRank } from '../engine/combat.ts';
@@ -46,8 +47,6 @@ import {
 import type { MapFloatingPopup } from './uiTypes.ts';
 
 const TILE_SIZE = 48;
-const BOARD_PX = GRID_SIZE * TILE_SIZE;
-const MIN_ZOOM = 0.65;
 const MAX_ZOOM = 2.0;
 const DRAG_THRESHOLD_PX = 8;
 
@@ -57,13 +56,17 @@ interface MapBoardProps {
   readonly selectedTileKey: CoordKey | null;
   readonly reachableKeys: ReadonlySet<CoordKey>;
   readonly attackableKeys: ReadonlySet<CoordKey>;
+  readonly specialTargetKeys?: ReadonlySet<CoordKey>;
+  readonly specialTargetKind?: 'outpost' | 'volley' | 'beacon' | null;
   readonly buildPreviews: ReadonlyMap<CoordKey, BuildPreviewInfo>;
   readonly showYieldOverlay: boolean;
+  readonly showMinimap?: boolean;
   readonly showZoomButtons?: boolean;
   readonly floatingPopups: readonly MapFloatingPopup[];
   readonly focusTileKey: CoordKey | null;
   readonly focusNonce: number;
   readonly onToggleYieldOverlay: () => void;
+  readonly onToggleMinimap?: () => void;
   readonly onTileTap: (tileKey: CoordKey) => void;
 }
 
@@ -91,6 +94,7 @@ interface WorldRiverNetwork {
 function buildWorldRiverNetwork(
   allTiles: Record<CoordKey, TileState>,
   exploredRiverTiles: readonly TileState[],
+  gridSize: number,
 ): WorldRiverNetwork {
   const mainSegs: string[] = [];
   const terminalOuterSegs: string[] = [];
@@ -110,9 +114,9 @@ function buildWorldRiverNetwork(
     const sway = (h % 2 === 0 ? 1 : -1) * (2.6 + (h % 3) * 0.8);
 
     const n = tile.y === 0 || allTiles[`${tile.x},${tile.y - 1}`]?.terrain === 'river';
-    const s = tile.y === GRID_SIZE - 1 || allTiles[`${tile.x},${tile.y + 1}`]?.terrain === 'river';
+    const s = tile.y === gridSize - 1 || allTiles[`${tile.x},${tile.y + 1}`]?.terrain === 'river';
     const w = tile.x === 0 || allTiles[`${tile.x - 1},${tile.y}`]?.terrain === 'river';
-    const e = tile.x === GRID_SIZE - 1 || allTiles[`${tile.x + 1},${tile.y}`]?.terrain === 'river';
+    const e = tile.x === gridSize - 1 || allTiles[`${tile.x + 1},${tile.y}`]?.terrain === 'river';
 
     // Fill 2x2 river cluster corners smoothly so wide bends become natural river basins
     if (n && e && allTiles[`${tile.x + 1},${tile.y - 1}`]?.terrain === 'river') {
@@ -120,9 +124,9 @@ function buildWorldRiverNetwork(
     }
 
     const ny = tile.y === 0 ? oy - 14 : oy;
-    const sy = tile.y === GRID_SIZE - 1 ? oy + 62 : oy + 48;
+    const sy = tile.y === gridSize - 1 ? oy + 62 : oy + 48;
     const wx = tile.x === 0 ? ox - 14 : ox;
-    const ex = tile.x === GRID_SIZE - 1 ? ox + 62 : ox + 48;
+    const ex = tile.x === gridSize - 1 ? ox + 62 : ox + 48;
 
     const count = (n ? 1 : 0) + (s ? 1 : 0) + (e ? 1 : 0) + (w ? 1 : 0);
 
@@ -631,9 +635,17 @@ function KeepStructureSvg({
             {/* Stone curtain wall */}
             <rect x="4" y="12" width="28" height="18" rx="1.5" fill="#94A3B8" stroke="#1E2430" strokeWidth="0.95" />
             <rect x="4" y="12" width="28" height="4" fill="#CBD5E1" opacity="0.6" />
-            {/* Left & Right crenelated towers */}
+            {/*Left & Right crenelated towers */}
             <rect x="2" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.95" />
             <rect x="24" y="5" width="10" height="25" rx="1" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.95" />
+            {/* Tier-3 Grand Citadel central sovereign spire & golden crown trim */}
+            {keep.tier >= 3 && (
+              <>
+                <rect x="11.5" y="1.5" width="13" height="28.5" rx="1" fill="#E2E8F0" stroke="#1E2430" strokeWidth="0.95" />
+                <polygon points="10.5,2.2 18,-3.2 25.5,2.2" fill={c.primary} stroke="#FACC15" strokeWidth="0.95" />
+                <rect x="3.5" y="11.5" width="29" height="1.8" fill="#FACC15" opacity="0.85" />
+              </>
+            )}
             {/* Tower battlements */}
             <path d="M2 5 V2.5 H5 V5 H9 V2.5 H12 V5 M24 5 V2.5 H27 V5 H31 V2.5 H34 V5" fill="#E2E8F0" stroke="#1E2430" strokeWidth="0.82" />
             {/* Portcullis archway */}
@@ -653,7 +665,9 @@ function KeepStructureSvg({
                     ? '#38BDF8'
                     : keep.specialization === 'market_town'
                       ? '#FACC15'
-                      : '#4ADE80'
+                      : keep.specialization === 'forge_seat'
+                        ? '#60A5FA'
+                        : '#4ADE80'
                 }
                 stroke="#1E2430"
                 strokeWidth="0.75"
@@ -661,6 +675,35 @@ function KeepStructureSvg({
             )}
           </g>
         )}
+      </g>
+    </g>
+  );
+}
+
+function OutpostStructureSvg({
+  outpost,
+  hasUnitOnTile,
+}: {
+  readonly outpost: OutpostState;
+  readonly hasUnitOnTile: boolean;
+}) {
+  const c = HOUSES[outpost.ownerHouseId].colors;
+  const ox = outpost.x * TILE_SIZE;
+  const oy = outpost.y * TILE_SIZE;
+  const hpRatio = Math.max(0, Math.min(1, outpost.hp / Math.max(1, outpost.maxHp || OUTPOST_MAX_HP)));
+  const hpColor = hpRatio > 0.5 ? '#22C55E' : hpRatio > 0.25 ? '#F59E0B' : '#EF4444';
+
+  return (
+    <g transform={`translate(${ox},${oy})`} pointerEvents="none">
+      <StructureHpBarSvg hpRatio={hpRatio} fillColor={hpColor} />
+      <g opacity={hasUnitOnTile ? 0.78 : 1} transform="translate(9, 10)" filter="url(#keep-shadow)">
+        <ellipse cx="15" cy="26" rx="13" ry="3.5" fill="#1E2430" opacity="0.32" />
+        {/* Timber stockade ring */}
+        <rect x="3" y="14" width="24" height="12" rx="1.2" fill="#78350F" stroke="#3B2314" strokeWidth="0.9" />
+        {/* Watch-turret & faction pennant */}
+        <rect x="9.5" y="6" width="11" height="18" rx="1" fill="#94A3B8" stroke="#1E2430" strokeWidth="0.9" />
+        <polygon points="8,7 15,1.5 22,7" fill={c.primary} stroke={c.darkStroke} strokeWidth="0.9" />
+        <rect x="13.2" y="18" width="3.6" height="8" fill="#1E2430" />
       </g>
     </g>
   );
@@ -709,7 +752,7 @@ function KeepNameplateSvg({
         fill="#F8FAFC"
         letterSpacing="0.02em"
       >
-        {shortName} {keep.tier === 2 ? '★' : ''}
+        {shortName} {keep.tier === 3 ? '★★' : keep.tier === 2 ? '★' : ''}
       </text>
       {/* Mini Food Progress Bar */}
       <rect x="-19" y="9.6" width="38" height="1.7" rx="0.85" fill="#2A2E38" />
@@ -808,6 +851,27 @@ function UnitTokenSvg({
         <UnitFigureSvg unitId={unit.typeId} houseId={unit.houseId} />
       </g>
 
+      {/* Deployed Trebuchet Siege Timber Outriggers */}
+      {unit.isDeployed && (
+        <g stroke="#F59E0B" strokeWidth="1.4" strokeLinecap="round">
+          <path d="M9 35.5 L15 31.5 M39 35.5 L33 31.5 M24.5 37 V33" />
+        </g>
+      )}
+
+      {/* Ranged Overwatch Vigilance Ring */}
+      {unit.isOverwatch && (
+        <ellipse
+          cx="24.5"
+          cy="32.8"
+          rx="15.2"
+          ry="5.4"
+          fill="none"
+          stroke="#38BDF8"
+          strokeWidth="1.6"
+          strokeDasharray="3 2"
+        />
+      )}
+
       {/* Fortified Entrenchment Stakes along Front Edge */}
       {unit.isFortified && (
         <g stroke="#3B2314" strokeWidth="0.75" fill="#B45309">
@@ -823,25 +887,52 @@ function UnitTokenSvg({
       <rect x="11.8" y="40.6" width={25.4 * hpRatio} height="2.8" rx="1.2" fill={hpColor} />
       <rect x="11.8" y="40.6" width={25.4 * hpRatio} height="0.95" rx="0.5" fill="#FFFFFF" opacity="0.28" />
 
-      {/* Veterancy Chevrons (Top-Left) */}
-      {rank > 0 && (
-        <g transform="translate(4, 3)">
+      {/* Lord-Commander Crown Crest OR Veterancy Chevrons (Top-Left) */}
+      {unit.isCommander ? (
+        <g transform="translate(3.5, 2.5)">
+          <circle cx="5.5" cy="5.5" r="5.5" fill="#16181D" stroke="#FACC15" strokeWidth="1.2" />
+          <polygon points="2.5,7.6 3.3,3.8 5.5,5.6 7.7,3.8 8.5,7.6" fill="#FACC15" />
+        </g>
+      ) : (
+        rank > 0 && (
+          <g transform="translate(4, 3)">
+            <circle
+              cx="5"
+              cy="5"
+              r="5.0"
+              fill="#16181D"
+              stroke={rank === 2 ? '#FACC15' : '#CBD5E1'}
+              strokeWidth="1.05"
+            />
+            {rank === 1 ? (
+              <path d="M2.5 6.2 L5 3.4 L7.5 6.2" stroke="#E2E8F0" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+              <g stroke="#FACC15" strokeWidth="1.25" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2.6 5.2 L5 2.7 L7.4 5.2" />
+                <path d="M2.6 7.6 L5 5.1 L7.4 7.6" />
+              </g>
+            )}
+          </g>
+        )
+      )}
+
+      {/* Overwatch / Deployed Pip (Top-Right when no penalty) */}
+      {!hasPenalty && (unit.isOverwatch || unit.isDeployed) && (
+        <g transform="translate(34.5, 2.8)">
           <circle
-            cx="5"
-            cy="5"
-            r="5.0"
-            fill="#16181D"
-            stroke={rank === 2 ? '#FACC15' : '#CBD5E1'}
+            cx="4.8"
+            cy="4.8"
+            r="4.8"
+            fill="#0F172A"
+            stroke={unit.isOverwatch ? '#38BDF8' : '#F59E0B'}
             strokeWidth="1.05"
           />
-          {rank === 1 ? (
-            <path d="M2.5 6.2 L5 3.4 L7.5 6.2" stroke="#E2E8F0" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          ) : (
-            <g stroke="#FACC15" strokeWidth="1.25" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2.6 5.2 L5 2.7 L7.4 5.2" />
-              <path d="M2.6 7.6 L5 5.1 L7.4 7.6" />
-            </g>
-          )}
+          <circle
+            cx="4.8"
+            cy="4.8"
+            r="2"
+            fill={unit.isOverwatch ? '#38BDF8' : '#F59E0B'}
+          />
         </g>
       )}
 
@@ -864,19 +955,27 @@ export function MapBoard({
   selectedTileKey,
   reachableKeys,
   attackableKeys,
+  specialTargetKeys,
+  specialTargetKind = null,
   buildPreviews,
   showYieldOverlay,
   showZoomButtons = false,
+  showMinimap = false,
   floatingPopups,
   focusTileKey,
   focusNonce,
   onToggleYieldOverlay,
+  onToggleMinimap,
   onTileTap,
 }: MapBoardProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const keepCycleIdxRef = useRef(0);
   const [zoom, setZoom] = useState(1.1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+
+  const gridSize = state.gridSize;
+  const boardPx = gridSize * TILE_SIZE;
+  const minZoom = gridSize >= 34 ? 0.42 : 0.65;
 
   // Pointer gesture tracking for pan, pinch-to-zoom, and 8px tap disambiguation
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -927,8 +1026,8 @@ export function MapBoard({
 
   const riverNetwork = useMemo(() => {
     const exploredRivers = exploredTiles.filter((t) => t.terrain === 'river');
-    return buildWorldRiverNetwork(state.tiles, exploredRivers);
-  }, [state.tiles, exploredTiles]);
+    return buildWorldRiverNetwork(state.tiles, exploredRivers, gridSize);
+  }, [state.tiles, exploredTiles, gridSize]);
 
   const keepByTile = useMemo(() => {
     const m = new Map<CoordKey, KeepState>();
@@ -937,6 +1036,14 @@ export function MapBoard({
     }
     return m;
   }, [state.keeps]);
+
+  const outpostByTile = useMemo(() => {
+    const m = new Map<CoordKey, OutpostState>();
+    for (const o of Object.values(state.outposts)) {
+      m.set(o.tileKey, o);
+    }
+    return m;
+  }, [state.outposts]);
 
   const visibleUnits = useMemo(() => {
     return Object.values(state.units).filter((u) => {
@@ -996,7 +1103,7 @@ export function MapBoard({
       const pts = Array.from(pointersRef.current.values());
       const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
       const nextZoom = Math.max(
-        MIN_ZOOM,
+        minZoom,
         Math.min(MAX_ZOOM, pinchStartRef.current.origZoom * (dist / pinchStartRef.current.dist)),
       );
       setZoom(nextZoom);
@@ -1040,7 +1147,7 @@ export function MapBoard({
       const boardY = (e.clientY - rect.top - offset.y) / zoom;
       const tx = Math.floor(boardX / TILE_SIZE);
       const ty = Math.floor(boardY / TILE_SIZE);
-      if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE) {
+      if (tx >= 0 && tx < gridSize && ty >= 0 && ty < gridSize) {
         onTileTap(`${tx},${ty}`);
       }
     }
@@ -1048,13 +1155,28 @@ export function MapBoard({
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    setZoom((z) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number((z * factor).toFixed(2)))));
+    setZoom((z) => Math.max(minZoom, Math.min(MAX_ZOOM, Number((z * factor).toFixed(2)))));
   };
 
+  const ownedKeeps = useMemo(
+    () =>
+      Object.values(state.keeps)
+        .filter((k) => k.ownerHouseId === viewerHouseId)
+        .sort((a, b) => (a.isCapital ? -1 : b.isCapital ? 1 : a.id.localeCompare(b.id))),
+    [state.keeps, viewerHouseId],
+  );
+
+  const ownedOutposts = useMemo(
+    () => Object.values(state.outposts).filter((o) => o.ownerHouseId === viewerHouseId),
+    [state.outposts, viewerHouseId],
+  );
+
+  const commanderUnit = useMemo(() => {
+    const cmd = state.commanders[viewerHouseId];
+    return cmd?.unitId ? state.units[cmd.unitId] ?? null : null;
+  }, [state.commanders, state.units, viewerHouseId]);
+
   const handleCycleKeep = () => {
-    const ownedKeeps = Object.values(state.keeps)
-      .filter((k) => k.ownerHouseId === viewerHouseId)
-      .sort((a, b) => (a.isCapital ? -1 : b.isCapital ? 1 : a.id.localeCompare(b.id)));
     if (ownedKeeps.length === 0) return;
     const idx = keepCycleIdxRef.current % ownedKeeps.length;
     const target = ownedKeeps[idx]!;
@@ -1093,16 +1215,16 @@ export function MapBoard({
         style={{
           transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
           transformOrigin: '0 0',
-          width: BOARD_PX,
-          height: BOARD_PX,
+          width: boardPx,
+          height: boardPx,
         }}
       >
         <svg
-          width={BOARD_PX}
-          height={BOARD_PX}
-          viewBox={`0 0 ${BOARD_PX} ${BOARD_PX}`}
+          width={boardPx}
+          height={boardPx}
+          viewBox={`0 0 ${boardPx} ${boardPx}`}
           role="img"
-          aria-label="Marchlands 22 by 22 frontier map"
+          aria-label={`Marchlands ${gridSize} by ${gridSize} frontier map`}
         >
           <defs>
             {/* Terrain Gradients */}
@@ -1215,7 +1337,7 @@ export function MapBoard({
           </defs>
 
           {/* Outer Cartographic Frame */}
-          <rect width={BOARD_PX} height={BOARD_PX} fill="url(#fog-pattern)" />
+          <rect width={boardPx} height={boardPx} fill="url(#fog-pattern)" />
 
           {/* Layer 1: Base Terrain Tiles (Plains, Forest, Hills, Mountain, Meadow under Rivers) */}
           {exploredTiles.map((tile) => (
@@ -1514,6 +1636,78 @@ export function MapBoard({
             );
           })}
 
+          {/* Layer 1d: Cobbled Frontier Roads & Orthogonal Wall Links */}
+          {exploredTiles.map((tile) => {
+            const ox = tile.x * TILE_SIZE;
+            const oy = tile.y * TILE_SIZE;
+            const cx = ox + 24;
+            const cy = oy + 24;
+
+            const nTile = state.tiles[`${tile.x},${tile.y - 1}`];
+            const sTile = state.tiles[`${tile.x},${tile.y + 1}`];
+            const wTile = state.tiles[`${tile.x - 1},${tile.y}`];
+            const eTile = state.tiles[`${tile.x + 1},${tile.y}`];
+
+            const isRoadConnect = (t: TileState | undefined) =>
+              t !== undefined && (t.hasRoad || keepByTile.has(t.key) || outpostByTile.has(t.key));
+
+            const isWallLink = (t: TileState | undefined) =>
+              tile.improvement === 'palisade' &&
+              t !== undefined &&
+              t.improvement === 'palisade' &&
+              t.ownerHouseId === tile.ownerHouseId;
+
+            if (!tile.hasRoad && tile.improvement !== 'palisade') return null;
+
+            const roadN = tile.hasRoad && isRoadConnect(nTile);
+            const roadS = tile.hasRoad && isRoadConnect(sTile);
+            const roadW = tile.hasRoad && isRoadConnect(wTile);
+            const roadE = tile.hasRoad && isRoadConnect(eTile);
+
+            const wallE = isWallLink(eTile);
+            const wallS = isWallLink(sTile);
+
+            return (
+              <g key={`rd_wl_${tile.key}`} pointerEvents="none">
+                {tile.hasRoad && (
+                  <g opacity="0.88">
+                    <circle cx={cx} cy={cy} r="5.2" fill="#8C7A61" stroke="#4D4233" strokeWidth="1" />
+                    {roadN && <line x1={cx} y1={cy} x2={cx} y2={oy} stroke="#8C7A61" strokeWidth="7" strokeLinecap="round" />}
+                    {roadS && <line x1={cx} y1={cy} x2={cx} y2={oy + TILE_SIZE} stroke="#8C7A61" strokeWidth="7" strokeLinecap="round" />}
+                    {roadW && <line x1={cx} y1={cy} x2={ox} y2={cy} stroke="#8C7A61" strokeWidth="7" strokeLinecap="round" />}
+                    {roadE && <line x1={cx} y1={cy} x2={ox + TILE_SIZE} y2={cy} stroke="#8C7A61" strokeWidth="7" strokeLinecap="round" />}
+                    {roadN && <line x1={cx} y1={cy} x2={cx} y2={oy} stroke="#C9B99B" strokeWidth="4" strokeDasharray="3 3" />}
+                    {roadS && <line x1={cx} y1={cy} x2={cx} y2={oy + TILE_SIZE} stroke="#C9B99B" strokeWidth="4" strokeDasharray="3 3" />}
+                    {roadW && <line x1={cx} y1={cy} x2={ox} y2={cy} stroke="#C9B99B" strokeWidth="4" strokeDasharray="3 3" />}
+                    {roadE && <line x1={cx} y1={cy} x2={ox + TILE_SIZE} y2={cy} stroke="#C9B99B" strokeWidth="4" strokeDasharray="3 3" />}
+                  </g>
+                )}
+                {wallE && (
+                  <line
+                    x1={ox + 34}
+                    y1={oy + 31}
+                    x2={ox + TILE_SIZE + 14}
+                    y2={oy + 31}
+                    stroke={tile.improvementLevel === 2 ? '#94A3B8' : '#7C4D2B'}
+                    strokeWidth="4.8"
+                    strokeLinecap="round"
+                  />
+                )}
+                {wallS && (
+                  <line
+                    x1={ox + 24}
+                    y1={oy + 34}
+                    x2={ox + 24}
+                    y2={oy + TILE_SIZE + 18}
+                    stroke={tile.improvementLevel === 2 ? '#94A3B8' : '#7C4D2B'}
+                    strokeWidth="4.8"
+                    strokeLinecap="round"
+                  />
+                )}
+              </g>
+            );
+          })}
+
           {/* Layer 2: Merged Contiguous Friendly Territory Borders (outer faction perimeter only) */}
           {tilesArray.map((tile) => {
             const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
@@ -1593,30 +1787,43 @@ export function MapBoard({
           {/* Layer 3: Improvements & Landmarks (Grounded Illustrations + Distinct Structure HP Bars) */}
           {tilesArray.map((tile) => {
             const fog: FogStatus = fogMap[tile.key] ?? 'unexplored';
-            if (fog === 'unexplored' || keepByTile.has(tile.key)) return null;
+            if (fog === 'unexplored' || keepByTile.has(tile.key) || outpostByTile.has(tile.key)) return null;
             const ox = tile.x * TILE_SIZE;
             const oy = tile.y * TILE_SIZE;
             const hasUnit = occupiedTileKeys.has(tile.key);
 
             if (tile.improvement) {
+              const impDef = IMPROVEMENTS[tile.improvement];
+              const maxFortHp =
+                (tile.improvementLevel === 2 && impDef.upgrade?.maxFortificationHp
+                  ? impDef.upgrade.maxFortificationHp
+                  : impDef.maxFortificationHp) ?? 14;
               const showFortHp =
-                tile.fortificationHp !== null && tile.fortificationHp < FORTIFICATION_MAX_HP;
+                tile.fortificationHp !== null && tile.fortificationHp < maxFortHp;
               return (
                 <g key={`imp_${tile.key}`} pointerEvents="none">
                   <g
                     transform={`translate(${ox + 3},${oy + 21}) scale(0.96)`}
                     opacity={hasUnit ? 0.78 : 1}
                   >
-                    <ImprovementGlyphSvg id={tile.improvement} />
+                    <ImprovementGlyphSvg id={tile.improvement} level={tile.improvementLevel} />
                   </g>
+                  {tile.improvementLevel === 2 && (
+                    <g transform={`translate(${ox + 33}, ${oy + 14})`}>
+                      <rect width="12" height="9" rx="2.5" fill="#1E2128" stroke="#E8C97E" strokeWidth="0.8" />
+                      <text x="6" y="6.8" textAnchor="middle" fontSize="6" fontWeight="800" fill="#FDE047">
+                        II
+                      </text>
+                    </g>
+                  )}
                   {showFortHp && tile.fortificationHp !== null && (
                     <g transform={`translate(${ox}, ${oy})`}>
                       <StructureHpBarSvg
-                        hpRatio={tile.fortificationHp / FORTIFICATION_MAX_HP}
+                        hpRatio={tile.fortificationHp / maxFortHp}
                         fillColor={
-                          tile.fortificationHp / FORTIFICATION_MAX_HP > 0.5
+                          tile.fortificationHp / maxFortHp > 0.5
                             ? '#22C55E'
-                            : tile.fortificationHp / FORTIFICATION_MAX_HP > 0.25
+                            : tile.fortificationHp / maxFortHp > 0.25
                               ? '#F59E0B'
                               : '#EF4444'
                         }
@@ -1629,11 +1836,13 @@ export function MapBoard({
 
             if (tile.landmark !== 'none' && !tile.landmarkCleared) {
               const hpRatio =
-                tile.landmark === 'frontier_village' && tile.villageHp !== null
-                  ? tile.villageHp / VILLAGE_MAX_HP
-                  : tile.landmark === 'outlaw_camp' && tile.banditHp !== null
-                    ? tile.banditHp / BANDIT_MAX_HP
-                    : null;
+                tile.landmark === 'high_seat' && tile.highSeatHp !== null
+                  ? tile.highSeatHp / HIGH_SEAT_MAX_HP
+                  : tile.landmark === 'frontier_village' && tile.villageHp !== null
+                    ? tile.villageHp / VILLAGE_MAX_HP
+                    : tile.landmark === 'outlaw_camp' && tile.banditHp !== null
+                      ? tile.banditHp / BANDIT_MAX_HP
+                      : null;
 
               return (
                 <g key={`lm_${tile.key}`} pointerEvents="none">
@@ -1647,7 +1856,13 @@ export function MapBoard({
                     <g transform={`translate(${ox}, ${oy})`}>
                       <StructureHpBarSvg
                         hpRatio={hpRatio}
-                        fillColor={tile.landmark === 'outlaw_camp' ? '#EF4444' : '#F59E0B'}
+                        fillColor={
+                          tile.landmark === 'outlaw_camp'
+                            ? '#EF4444'
+                            : tile.landmark === 'high_seat'
+                              ? '#E8C97E'
+                              : '#F59E0B'
+                        }
                       />
                     </g>
                   )}
@@ -1660,15 +1875,17 @@ export function MapBoard({
           {/* Layer 3b: Accessible Owned Tile Yield Badges (Monochrome Micro-Icons + Color Accents) */}
           {showYieldOverlay &&
             tilesArray.map((tile) => {
-              if (tile.ownerHouseId !== viewerHouseId || keepByTile.has(tile.key)) return null;
+              if (tile.ownerHouseId !== viewerHouseId || keepByTile.has(tile.key) || outpostByTile.has(tile.key))
+                return null;
               if (fogMap[tile.key] === 'unexplored') return null;
               const y = computeTileYield(state, tile.key);
-              if (y.food === 0 && y.materials === 0 && y.coin === 0) return null;
+              if (y.food === 0 && y.materials === 0 && y.iron === 0 && y.coin === 0) return null;
               const ox = tile.x * TILE_SIZE;
               const oy = tile.y * TILE_SIZE;
-              const chips: Array<{ kind: 'food' | 'mat' | 'coin'; text: string; stroke: string; accent: string }> = [];
+              const chips: Array<{ kind: 'food' | 'mat' | 'iron' | 'coin'; text: string; stroke: string; accent: string }> = [];
               if (y.food > 0) chips.push({ kind: 'food', text: `+${y.food}`, stroke: '#22C55E', accent: '#4ADE80' });
               if (y.materials > 0) chips.push({ kind: 'mat', text: `+${y.materials}`, stroke: '#EA580C', accent: '#FB923C' });
+              if (y.iron > 0) chips.push({ kind: 'iron', text: `+${y.iron}`, stroke: '#3B82F6', accent: '#60A5FA' });
               if (y.coin > 0) chips.push({ kind: 'coin', text: `+${y.coin}`, stroke: '#EAB308', accent: '#FDE047' });
 
               const isCompact = chips.length >= 3;
@@ -1689,7 +1906,7 @@ export function MapBoard({
                         stroke={ch.stroke}
                         strokeWidth="0.75"
                       />
-                      {/* Ultra-clean monochrome minimalist micro-icon (Food sprout / Materials cube / Coin circle) */}
+                      {/* Ultra-clean monochrome minimalist micro-icon (Food sprout / Materials cube / Iron ingot / Coin circle) */}
                       <g transform={isCompact ? 'translate(1.4, 2.1) scale(0.75)' : 'translate(2.1, 1.8) scale(0.84)'}>
                         {ch.kind === 'food' && (
                           <path
@@ -1706,6 +1923,15 @@ export function MapBoard({
                             <polygon points="4,1 7.2,2.7 4,4.4 0.8,2.7" fill={ch.accent} fillOpacity="0.35" />
                             <path d="M0.8 2.7 V5.8 L4 7.5 L7.2 5.8 V2.7 M4 4.4 V7.5" />
                           </g>
+                        )}
+                        {ch.kind === 'iron' && (
+                          <polygon
+                            points="4,1 7,4.2 4,7.4 1,4.2"
+                            fill={ch.accent}
+                            fillOpacity="0.45"
+                            stroke={ch.accent}
+                            strokeWidth="1.1"
+                          />
                         )}
                         {ch.kind === 'coin' && (
                           <g>
@@ -1730,7 +1956,7 @@ export function MapBoard({
               );
             })}
 
-          {/* Layer 4: Keeps (Architecture + Structure HP Bar) */}
+          {/* Layer 4: Keeps & Frontier Outposts (Architecture + Structure HP Bar) */}
           {Array.from(keepByTile.values()).map((keep) => {
             const fog: FogStatus = fogMap[keep.tileKey] ?? 'unexplored';
             if (fog === 'unexplored') return null;
@@ -1742,11 +1968,22 @@ export function MapBoard({
               />
             );
           })}
+          {Array.from(outpostByTile.values()).map((outpost) => {
+            const fog: FogStatus = fogMap[outpost.tileKey] ?? 'unexplored';
+            if (fog === 'unexplored') return null;
+            return (
+              <OutpostStructureSvg
+                key={outpost.id}
+                outpost={outpost}
+                hasUnitOnTile={occupiedTileKeys.has(outpost.tileKey)}
+              />
+            );
+          })}
 
           {/* Layer 4b: Subtle Seasonal Atmosphere Tint */}
           <rect
-            width={BOARD_PX}
-            height={BOARD_PX}
+            width={boardPx}
+            height={boardPx}
             fill={seasonalAtmosphere}
             pointerEvents="none"
           />
@@ -1843,6 +2080,7 @@ export function MapBoard({
             const tile = state.tiles[u.tileKey];
             const isOnStructure =
               keepByTile.has(u.tileKey) ||
+              outpostByTile.has(u.tileKey) ||
               (tile !== undefined &&
                 (tile.improvement !== null ||
                   (tile.landmark !== 'none' && !tile.landmarkCleared)));
@@ -1857,7 +2095,7 @@ export function MapBoard({
             );
           })}
 
-          {/* Layer 7: Tactical Overlays (Reachable, Attackable, Build Preview, Selected) */}
+          {/* Layer 7: Tactical Overlays (Reachable, Attackable, Special Target, Build Preview, Selected) */}
           {Array.from(reachableKeys).map((k) => {
             const t = state.tiles[k];
             if (!t) return null;
@@ -1904,6 +2142,51 @@ export function MapBoard({
             );
           })}
 
+          {specialTargetKeys &&
+            Array.from(specialTargetKeys).map((k) => {
+              const t = state.tiles[k];
+              if (!t) return null;
+              const ox = t.x * TILE_SIZE;
+              const oy = t.y * TILE_SIZE;
+              const isOutpost = specialTargetKind === 'outpost';
+              return (
+                <g key={`spec_${k}`} pointerEvents="none">
+                  <rect
+                    x={ox + 2.5}
+                    y={oy + 2.5}
+                    width={TILE_SIZE - 5}
+                    height={TILE_SIZE - 5}
+                    rx="4"
+                    fill={isOutpost ? '#10B981' : '#F59E0B'}
+                    fillOpacity="0.3"
+                    stroke={isOutpost ? '#34D399' : '#FACC15'}
+                    strokeWidth="2.2"
+                    strokeDasharray={isOutpost ? '4 2' : undefined}
+                  />
+                  <rect
+                    x={ox + 5}
+                    y={oy + 4}
+                    width="38"
+                    height="12"
+                    rx="6"
+                    fill="#16181D"
+                    stroke={isOutpost ? '#34D399' : '#FACC15'}
+                    strokeWidth="0.9"
+                  />
+                  <text
+                    x={ox + 24}
+                    y={oy + 12.2}
+                    textAnchor="middle"
+                    fontSize="7"
+                    fontWeight="800"
+                    fill="#FAF7F0"
+                  >
+                    {isOutpost ? 'OUTPOST' : specialTargetKind === 'volley' ? 'VOLLEY' : 'MARK'}
+                  </text>
+                </g>
+              );
+            })}
+
           {Array.from(buildPreviews.entries()).map(([k, preview]) => {
             const t = state.tiles[k];
             if (!t || !preview.canBuild) return null;
@@ -1912,6 +2195,7 @@ export function MapBoard({
             const parts: string[] = [];
             if (preview.deltaYield.food > 0) parts.push(`+${preview.deltaYield.food}F`);
             if (preview.deltaYield.materials > 0) parts.push(`+${preview.deltaYield.materials}M`);
+            if (preview.deltaYield.iron > 0) parts.push(`+${preview.deltaYield.iron}Ir`);
             if (preview.deltaYield.coin > 0) parts.push(`+${preview.deltaYield.coin}C`);
             const pill = parts.join(' ') || 'BUILD';
 
@@ -2008,6 +2292,138 @@ export function MapBoard({
         </svg>
       </div>
 
+      {/* Collapsible Quick-Jump & Minimap Radar Panel (Top-Left for 34x34 Navigation) */}
+      {showMinimap && (
+        <div
+          className="absolute left-2 top-2 z-20 w-52 rounded-xl bg-[#16181D]/92 backdrop-blur-md border border-[#383B44] p-2.5 shadow-2xl"
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+              Frontier Radar ({gridSize}×{gridSize})
+            </span>
+            {onToggleMinimap && (
+              <button
+                type="button"
+                onClick={onToggleMinimap}
+                className="touch-target w-11 h-11 flex items-center justify-center rounded-lg bg-[#23262E] border border-[#383B44] text-xs text-stone-300 hover:text-stone-100"
+                aria-label="Close radar"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <svg
+            viewBox={`0 0 ${gridSize} ${gridSize}`}
+            className="w-full h-36 rounded-lg bg-[#0F1115] border border-[#2C3039] mb-2 cursor-pointer"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const mx = Math.floor(((e.clientX - rect.left) / rect.width) * gridSize);
+              const my = Math.floor(((e.clientY - rect.top) / rect.height) * gridSize);
+              const key: CoordKey = `${Math.max(0, Math.min(gridSize - 1, mx))},${Math.max(0, Math.min(gridSize - 1, my))}`;
+              centerOnTile(key);
+              onTileTap(key);
+            }}
+          >
+            {exploredTiles.map((t) => (
+              <rect
+                key={`mm_${t.key}`}
+                x={t.x}
+                y={t.y}
+                width="1"
+                height="1"
+                fill={
+                  t.ownerHouseId
+                    ? HOUSES[t.ownerHouseId].colors.primary
+                    : t.terrain === 'river'
+                      ? '#38BDF8'
+                      : t.terrain === 'mountain'
+                        ? '#64748B'
+                        : '#334155'
+                }
+                fillOpacity={t.ownerHouseId ? '0.85' : '0.5'}
+              />
+            ))}
+            {state.highSeatTileKey && (fogMap[state.highSeatTileKey] ?? 'unexplored') !== 'unexplored' && state.tiles[state.highSeatTileKey] && (
+              <circle
+                cx={state.tiles[state.highSeatTileKey]!.x + 0.5}
+                cy={state.tiles[state.highSeatTileKey]!.y + 0.5}
+                r="1.3"
+                fill="#FACC15"
+                stroke="#13151A"
+                strokeWidth="0.35"
+              />
+            )}
+            {Array.from(keepByTile.values()).map((k) => {
+              if ((fogMap[k.tileKey] ?? 'unexplored') === 'unexplored') return null;
+              return (
+                <rect
+                  key={`mmk_${k.id}`}
+                  x={k.x - 0.45}
+                  y={k.y - 0.45}
+                  width="1.9"
+                  height="1.9"
+                  fill={k.ownerHouseId ? HOUSES[k.ownerHouseId].colors.primary : '#FAF7F0'}
+                  stroke="#13151A"
+                  strokeWidth="0.35"
+                />
+              );
+            })}
+          </svg>
+          <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+            {ownedKeeps[0] && (
+              <button
+                type="button"
+                onClick={() => {
+                  centerOnTile(ownedKeeps[0]!.tileKey);
+                  onTileTap(ownedKeeps[0]!.tileKey);
+                }}
+                className="touch-target min-h-[44px] px-2 py-1 rounded-lg bg-[#23262E] border border-amber-500/40 text-amber-200 font-semibold truncate text-left"
+              >
+                ★ Capital
+              </button>
+            )}
+            {commanderUnit && (
+              <button
+                type="button"
+                onClick={() => {
+                  centerOnTile(commanderUnit.tileKey);
+                  onTileTap(commanderUnit.tileKey);
+                }}
+                className="touch-target min-h-[44px] px-2 py-1 rounded-lg bg-[#23262E] border border-sky-400/40 text-sky-200 font-semibold truncate text-left"
+              >
+                ♛ Marshal
+              </button>
+            )}
+            {state.highSeatTileKey && (
+              <button
+                type="button"
+                onClick={() => {
+                  centerOnTile(state.highSeatTileKey!);
+                  onTileTap(state.highSeatTileKey!);
+                }}
+                className="touch-target min-h-[44px] px-2 py-1 rounded-lg bg-[#23262E] border border-stone-600 text-stone-200 font-semibold truncate text-left"
+              >
+                👑 High Seat
+              </button>
+            )}
+            {ownedOutposts[0] && (
+              <button
+                type="button"
+                onClick={() => {
+                  centerOnTile(ownedOutposts[0]!.tileKey);
+                  onTileTap(ownedOutposts[0]!.tileKey);
+                }}
+                className="touch-target min-h-[44px] px-2 py-1 rounded-lg bg-[#23262E] border border-emerald-500/40 text-emerald-200 font-semibold truncate text-left"
+              >
+                ⚑ Outpost ({ownedOutposts.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Compact Translucent Icon-Only Floating Map Controls (44x44px, 8px gaps, bottom-right) */}
       <div
         className="absolute right-2 bottom-2 flex flex-col gap-2 z-20"
@@ -2029,7 +2445,7 @@ export function MapBoard({
             </button>
             <button
               type="button"
-              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, Number((z - 0.25).toFixed(2))))}
+              onClick={() => setZoom((z) => Math.max(minZoom, Number((z - 0.25).toFixed(2))))}
               className="touch-target w-11 h-11 flex items-center justify-center rounded-xl bg-[#1E2128]/78 backdrop-blur-sm border border-[#383B44]/90 text-stone-200 shadow-lg active:scale-95 transition"
               aria-label="Zoom out"
               title="Zoom out"
@@ -2039,6 +2455,26 @@ export function MapBoard({
               </svg>
             </button>
           </>
+        )}
+
+        {onToggleMinimap && (
+          <button
+            type="button"
+            onClick={onToggleMinimap}
+            className={`touch-target w-11 h-11 flex items-center justify-center rounded-xl border backdrop-blur-sm shadow-lg active:scale-95 transition ${
+              showMinimap
+                ? 'bg-amber-950/80 border-amber-400/75 text-amber-300'
+                : 'bg-[#1E2128]/78 border-[#383B44]/90 text-stone-300'
+            }`}
+            aria-label="Toggle frontier radar and quick jump"
+            aria-pressed={showMinimap}
+            title="Frontier Radar & Quick Jump"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="6.8" stroke="currentColor" strokeWidth="1.45" />
+              <polygon points="10,5.2 12.2,10 10,14.8 7.8,10" fill="currentColor" fillOpacity="0.35" stroke="currentColor" strokeWidth="1.1" />
+            </svg>
+          </button>
         )}
 
         <button

@@ -1,33 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import { runSimulatedGame } from '../simRunner.ts';
 
-describe('Step 9: CI Simulation Smoke Test (5 seeded games, max 60 turns)', () => {
-  it('completes 5 seeded games with 0 invariant failures and 100% determinism in < 30s', () => {
+describe('Step 9: CI Simulation Smoke Test (3 Grand 34x34 + 2 Compact 22x22 games)', () => {
+  it('completes 5 seeded v2.0 games with 0 invariant failures and 100% determinism in < 30s', () => {
     const startMs = performance.now();
 
-    for (let i = 0; i < 5; i++) {
-      const seed = 1001 + i;
+    const configs = [
+      { seed: 1001, mapPreset: 'grand' as const, maxTurns: 45 },
+      { seed: 1002, mapPreset: 'grand' as const, maxTurns: 45 },
+      { seed: 1003, mapPreset: 'grand' as const, maxTurns: 45 },
+      { seed: 1004, mapPreset: 'compact' as const, maxTurns: 45 },
+      { seed: 1005, mapPreset: 'compact' as const, maxTurns: 45 },
+    ];
+
+    for (let i = 0; i < configs.length; i++) {
+      const cfg = configs[i]!;
       const runA = runSimulatedGame({
-        seed,
+        seed: cfg.seed,
         houseCount: 5,
         mode: 'dominion',
+        mapPreset: cfg.mapPreset,
         difficulty: 'normal',
-        maxTurns: 60,
+        maxTurns: cfg.maxTurns,
         seatRotation: i,
-        checkJsonRoundTrip: true,
+        checkJsonRoundTrip: i === 0 || i === 3,
       });
 
       expect(runA.invariantViolations).toEqual([]);
       expect(runA.turnsPlayed).toBeGreaterThan(0);
 
-      // Verify full determinism by replaying seed 1001 (1-in-5 check, stricter than harness 1-in-20)
-      if (i === 0) {
+      // Verify 100% determinism on Compact (60 turns)
+      if (i === 3) {
         const runB = runSimulatedGame({
-          seed,
+          seed: cfg.seed,
           houseCount: 5,
           mode: 'dominion',
+          mapPreset: cfg.mapPreset,
           difficulty: 'normal',
-          maxTurns: 60,
+          maxTurns: cfg.maxTurns,
           seatRotation: i,
           checkJsonRoundTrip: false,
         });

@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /**
- * Marchlands (Spec v0.3) — Verified Hits-to-Kill (HTK) Table Generator
+ * Marchlands (Spec v2.0) — Verified Hits-to-Kill (HTK) Table Generator
  *
  * Calls the real engine combat function (`previewUnitCombat`) directly for
- * full-HP Plains matchups, recording primary damage, retaliation damage,
- * HTK, One-Shot Protection triggers, and Spearman Brace triggers.
+ * full-HP Plains matchups (Closed 4-Way Counter Loop, Scale 2.2, Crossbow AP).
  */
 
 import type { GameState, UnitId, UnitState } from '../src/types/game.ts';
@@ -21,28 +20,26 @@ const MATCHUPS: readonly [UnitId, UnitId][] = [
   ['men_at_arms', 'spearman'],
   ['men_at_arms', 'militia'],
   ['men_at_arms', 'knight'],
+  ['archer', 'men_at_arms'],
   ['archer', 'spearman'],
-  ['archer', 'archer'],
   ['archer', 'knight'],
-  ['crossbowman', 'spearman'],
+  ['crossbowman', 'men_at_arms'],
   ['crossbowman', 'oathsworn_halberdier'],
+  ['longbowman', 'men_at_arms'],
   ['longbowman', 'spearman'],
-  ['longbowman', 'archer'],
   ['knight', 'archer'],
   ['knight', 'crossbowman'],
   ['knight', 'spearman'],
   ['knight', 'men_at_arms'],
   ['knight', 'knight'],
-  ['gilded_lancer', 'spearman'],
   ['gilded_lancer', 'archer'],
-  ['dusk_outrider', 'spearman'],
   ['dusk_outrider', 'archer'],
   ['spearman', 'knight'],
   ['oathsworn_halberdier', 'knight'],
   ['vanguard_spearman', 'knight'],
-  ['free_company_spearman', 'knight'],
   ['sapper_crew', 'spearman'],
-  ['siege_ram', 'spearman'],
+  ['trebuchet', 'spearman'],
+  ['lord_commander', 'men_at_arms'],
 ];
 
 function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
@@ -51,6 +48,7 @@ function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
     houseCount: 5,
     mode: 'dominion',
     difficulty: 'normal',
+    mapPreset: 'compact',
     humanHouseId: null,
   });
 
@@ -65,16 +63,22 @@ function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
     ...tiles[atkKey]!,
     terrain: 'plains',
     improvement: null,
+    improvementLevel: 1,
+    hasRoad: false,
     landmark: 'none',
     keepId: null,
+    outpostId: null,
     ownerHouseId: null,
   };
   tiles[defKey] = {
     ...tiles[defKey]!,
     terrain: 'plains',
     improvement: null,
+    improvementLevel: 1,
+    hasRoad: false,
     landmark: 'none',
     keepId: null,
+    outpostId: null,
     ownerHouseId: null,
   };
 
@@ -85,7 +89,7 @@ function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
     id: 'u_atk',
     houseId: atkHouse,
     typeId: atkId,
-    homeKeepId: 'keep_1',
+    homeKeepId: atkId === 'lord_commander' ? 'commander' : 'keep_1',
     tileKey: atkKey,
     x: 10,
     y: 10,
@@ -97,13 +101,22 @@ function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
     spawnedOnTurn: 0,
     isMutinied: false,
     damagedSinceLastTurn: false,
+    xp: 0,
+    battleHonors: [],
+    isFortified: false,
+    isOverwatch: false,
+    isDeployed: atkDef.requiresDeploy,
+    isCommander: atkId === 'lord_commander',
+    movedOpenTilesThisTurn: 0,
+    commanderBuffUntilTurn: null,
+    overwatchRangeBonusUntilTurn: null,
   };
 
   const uDef: UnitState = {
     id: 'u_def',
     houseId: defHouse,
     typeId: defId,
-    homeKeepId: 'keep_2',
+    homeKeepId: defId === 'lord_commander' ? 'commander' : 'keep_2',
     tileKey: defKey,
     x: defX,
     y: 10,
@@ -115,6 +128,15 @@ function makeDuelState(atkId: UnitId, defId: UnitId): GameState {
     spawnedOnTurn: 0,
     isMutinied: false,
     damagedSinceLastTurn: false,
+    xp: 0,
+    battleHonors: [],
+    isFortified: false,
+    isOverwatch: false,
+    isDeployed: defDef.requiresDeploy,
+    isCommander: defId === 'lord_commander',
+    movedOpenTilesThisTurn: 0,
+    commanderBuffUntilTurn: null,
+    overwatchRangeBonusUntilTurn: null,
   };
 
   return {
@@ -138,7 +160,6 @@ function computeHtk(atkId: UnitId, defId: UnitId): number {
       units: {
         ...state.units,
         u_def: { ...state.units.u_def!, hp: p.defenderHpAfter },
-        // Keep attacker at full HP to measure clean attacker HTK against target
       },
     };
   }

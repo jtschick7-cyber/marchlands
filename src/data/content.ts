@@ -1,9 +1,12 @@
 /**
- * Marchlands (Spec v0.3) — Relic Ruins (12), Frontier Events (14),
- * Crown Writs (12), Keep Specializations (3), Terrains (5), and Seasons (4).
+ * Marchlands (Spec v2.0) — Relic Ruins (12), Frontier Events (14),
+ * Crown Writs (12), Keep Specializations (4), Citadel Charters (4),
+ * Terrains (5), and Seasons (4).
  */
 
 import type {
+  CitadelCharter,
+  CitadelCharterDef,
   CrownWritDef,
   EventId,
   FrontierEventDef,
@@ -18,14 +21,10 @@ import type {
   WritId,
 } from '../types/game.ts';
 import {
-  KEEP_BASE_MAX_HP,
-  KEEP_BASE_REGEN,
-  KEEP_GARRISON_MAX_HP,
-  KEEP_GARRISON_REGEN,
-  KEEP_TIER2_REPEAT_FOOD_THRESHOLD,
+  KEEP_GARRISON_HP_BONUS,
+  KEEP_GARRISON_REGEN_BONUS,
   MARKET_TOWN_ANNEX_COIN_DISCOUNT,
-  PALISADE_CAP_GARRISON,
-  PALISADE_CAP_TIER2,
+  WALL_CAP_GARRISON_BONUS,
 } from './constants.ts';
 
 // ============================================================================
@@ -52,85 +51,85 @@ export const RELIC_RUINS: Readonly<Record<RelicRuinId, RelicRuinDef>> = {
     id: 'ruin_sunken_armory',
     title: 'The Sunken Armory',
     vignette:
-      'Beneath a collapsed stone lintel, your scouts unearth oiled crates of pre-collapse broadheads and forged iron ingots.',
-    rewardSummary: '+14 Materials',
+      'Beneath a collapsed stone lintel, your scouts unearth oiled crates of broadheads and forged iron ingots.',
+    rewardSummary: '+12 Materials and +4 Iron',
   },
   ruin_tax_vault: {
     id: 'ruin_tax_vault',
     title: 'The Old Mint Vault',
     vignette:
       'Behind a rusted iron grate in a ruined customs house lie stacked chests of stamped silver crowns.',
-    rewardSummary: '+18 Coin',
+    rewardSummary: '+22 Coin',
   },
   ruin_monastic_cellar: {
     id: 'ruin_monastic_cellar',
     title: 'Abbey Cellars',
     vignette:
       'Sealed casks of smoked grain, dried orchard fruit, and salted stores remain untouched beneath the roofless cloister.',
-    rewardSummary: '+14 Food to nearest friendly Keep',
+    rewardSummary: '+18 Food to nearest friendly Keep',
   },
   ruin_charter_archive: {
     id: 'ruin_charter_archive',
     title: 'The Burnt Chancellery',
     vignette:
       'Inside a fireproof bronze reliquary, your chroniclers recover intact administrative charters from the First Kingdom.',
-    rewardSummary: 'Immediate 1-of-3 Royal Decree Draft',
+    rewardSummary: 'Immediate Doctrine Pair Draft',
   },
   ruin_surveyors_cairn: {
     id: 'ruin_surveyors_cairn',
     title: "Surveyor's Cairn",
     vignette:
       'Etched slate maps atop an ancient boundary cairn reveal every river bend and mountain pass for leagues around.',
-    rewardSummary: 'Permanently clears 9x9 fog radius',
+    rewardSummary: 'Permanently clears 11x11 fog radius',
   },
   ruin_mercenary_cache: {
     id: 'ruin_mercenary_cache',
     title: 'Free-Company Hoard',
     vignette:
-      'A forgotten outlaw stash hidden inside a hollow watchtower yields both minted coin and usable timber.',
-    rewardSummary: '+10 Coin and +8 Materials',
+      'A forgotten outlaw stash hidden inside a hollow watchtower yields minted coin, iron bars, and timber.',
+    rewardSummary: '+12 Coin, +8 Materials, and +2 Iron',
   },
   ruin_apothecary_shrine: {
     id: 'ruin_apothecary_shrine',
     title: "Hearth-Warden's Shrine",
     vignette:
       'Clean spring water and preserved medicinal herbs restore your weary vanguard to full fighting strength.',
-    rewardSummary: 'Heals unit to 100% HP and +5 Food to nearest Keep',
+    rewardSummary: 'Heals unit to 100% HP and +8 Food to nearest Keep',
   },
   ruin_iron_foundry: {
     id: 'ruin_iron_foundry',
     title: 'Collapsed Bloomery',
     vignette:
       'Excavating an ancient hillside furnace exposes rich, partially smelted iron blooms ready for the anvil.',
-    rewardSummary: '+16 Materials and adds an Iron Deposit to this tile',
+    rewardSummary: '+8 Materials, +5 Iron, and adds an Iron Deposit to this tile',
   },
   ruin_wayfarer_tomb: {
     id: 'ruin_wayfarer_tomb',
     title: 'Barrow of the March-Lord',
     vignette:
       'A weathered stone effigy clutches an engraved war-horn and a purse of tribute silver.',
-    rewardSummary: '+12 Coin and restores unit movement this turn',
+    rewardSummary: '+14 Coin and restores unit movement this turn',
   },
   ruin_seed_vault: {
     id: 'ruin_seed_vault',
     title: 'The Root-Cellar of Oakhaven',
     vignette:
       'Clay amphorae sealed with beeswax hold hardy heirloom seed stock suited for frontier soil.',
-    rewardSummary: '+10 Food to nearest Keep and +6 Coin',
+    rewardSummary: '+14 Food to nearest Keep and +8 Coin',
   },
   ruin_beacon_rotunda: {
     id: 'ruin_beacon_rotunda',
     title: 'Collapsed Signal Rotunda',
     vignette:
       'Polished bronze mirrors salvaged from the dome allow your scouts to spot movement across the valley.',
-    rewardSummary: 'Permanently clears 7x7 fog radius and +8 Coin',
+    rewardSummary: 'Permanently clears 9x9 fog radius and +10 Coin',
   },
   ruin_war_council_hall: {
     id: 'ruin_war_council_hall',
     title: 'The Pact Stone',
     vignette:
       'Carved into the monolith are the ancient laws of frontier governance, inspiring your commanders.',
-    rewardSummary: 'Immediate 1-of-3 Royal Decree Draft and +5 Coin',
+    rewardSummary: 'Immediate Doctrine Pair Draft and +6 Coin',
   },
 };
 
@@ -166,7 +165,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette:
       "Sealed writs from the Regent's Exchequer arrive by hard-ridden courier, demanding silver for the capital's coffers.",
-    effectText: 'Choose: pay min(20, floor(coin * 0.2)) Coin or lose 2 Favor.',
+    effectText: 'Choose: pay min(25, floor(coin * 0.2)) Coin or lose 2 Favor.',
   },
   evt_bountiful_harvest: {
     id: 'evt_bountiful_harvest',
@@ -178,7 +177,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette:
       'Warm late rains and fat barley heads fill every threshing floor before the first frost.',
-    effectText: "+4 Food to every Keep's growth bar.",
+    effectText: "+6 Food to every Keep's growth bar.",
   },
   evt_blight: {
     id: 'evt_blight',
@@ -215,7 +214,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     vignette:
       'Broken men and deserters gather beneath tattered black banners in the unclaimed timberlands.',
     effectText:
-      'Spawn 1 Outlaw Camp (with Bandit) on an empty, unowned, passable tile >= 4 tiles from any Keep. Skip if none qualifies.',
+      'Spawn 1 Outlaw Camp (with Bandit) on an empty, unowned, passable tile >= 4 tiles from any Keep.',
   },
   evt_free_company: {
     id: 'evt_free_company',
@@ -228,7 +227,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     vignette:
       'Ash-stained pikes and seasoned sellswords offer their blades to the House most hungry for steel.',
     effectText:
-      'Choose: hire a Free Company Spearman (Spearman stats, +2 Atk) for 15 Coin, or decline. Exempt from Army Cap, cannot re-home, 1 Coin upkeep, disbands if orphaned.',
+      'Choose: hire a Free Company Spearman for 20 Coin, or decline. Exempt from Army Cap, 2 Coin upkeep.',
   },
   evt_tournament: {
     id: 'evt_tournament',
@@ -240,7 +239,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette:
       "Pavilion tents rise along the King's Road, where gilded lances win more standing than quiet thrift.",
-    effectText: 'Choose: pay 10 Coin for 2 Favor, or decline.',
+    effectText: 'Choose: pay 12 Coin for 2 Favor, or decline.',
   },
   evt_plague: {
     id: 'evt_plague',
@@ -252,7 +251,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette:
       'Marsh mist settles over crowded ditches, spoiling stored grain and thinning the watch.',
-    effectText: 'Each Keep of the House with the most Keeps loses 6 growth-bar Food (minimum 0).',
+    effectText: 'Each Keep of the House with the most Keeps loses 10 growth-bar Food (minimum 0).',
   },
   evt_pilgrims: {
     id: 'evt_pilgrims',
@@ -264,7 +263,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette:
       'Shrine-bound wagons swell the market roads, leaving stamped silver at every tollgate.',
-    effectText: '+2 Coin per Market owned (once).',
+    effectText: '+3 Coin per Market or Guildhall owned (once).',
   },
   evt_timber_boom: {
     id: 'evt_timber_boom',
@@ -276,7 +275,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 3,
     vignette:
       'Dry riverbeds and steady winds let sawyers haul twice the heartwood out of the ridges.',
-    effectText: 'Lumber Mills +1 Materials for 3 turns.',
+    effectText: 'Lumber Mills & Logging Camps +1 Materials for 3 turns.',
   },
   evt_iron_strike: {
     id: 'evt_iron_strike',
@@ -287,7 +286,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     choiceOptions: [],
     durationTurns: 0,
     vignette: 'A rockslide on the high crags lays bare a gleaming seam of grey bog-iron.',
-    effectText: 'One unowned Hills tile gets hasIronDeposit = true and is revealed to all Houses.',
+    effectText: 'One unowned Hills tile gains an Iron Deposit and is revealed to all Houses.',
   },
   evt_deserters: {
     id: 'evt_deserters',
@@ -299,7 +298,7 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     durationTurns: 0,
     vignette: 'Sullen captains count copper at the pay-table while boots rot in the mud.',
     effectText:
-      "Choose: pay 2x this turn's upkeep in Coin, or highest-upkeep unit takes 6 true damage (cannot drop below 1 HP).",
+      "Choose: pay 2x this turn's unit upkeep in Coin, or highest-upkeep unit takes 6 true damage (min 1 HP).",
   },
   evt_inspection: {
     id: 'evt_inspection',
@@ -322,12 +321,12 @@ export const FRONTIER_EVENTS: Readonly<Record<EventId, FrontierEventDef>> = {
     choiceOptions: [],
     durationTurns: 3,
     vignette: 'Clear passes and calm waters bring merchant trains from the southern cities.',
-    effectText: 'Markets +2 Coin for 3 turns.',
+    effectText: 'Markets & Guildhalls +2 Coin for 3 turns.',
   },
 };
 
 // ============================================================================
-// 12 Crown Writs
+// 12 Crown Writs (v2.0 Scaled Rewards incl. Iron)
 // ============================================================================
 
 export const WRIT_IDS: readonly WritId[] = [
@@ -353,8 +352,9 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
       'Hang the highwaymen from their own ridge-poles and the Crown will remember your zeal.',
     requirementText: 'Clear an Outlaw Camp',
     rewardFavor: 4,
-    rewardCoin: 6,
+    rewardCoin: 8,
     rewardMaterials: 0,
+    rewardIron: 2,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -366,6 +366,7 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     rewardFavor: 5,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -374,9 +375,10 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     title: 'Light the Beacons',
     flavor: 'Two stone towers burning through the dusk prove your wardens hold the high passes.',
     requirementText: 'Hold units on 2 Ancient Watchtowers at the same time',
-    rewardFavor: 4,
+    rewardFavor: 5,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -384,10 +386,11 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     id: 'writ_strongholds',
     title: 'Raise the Banners',
     flavor: 'Timber palisades are for squatters; the Council honors Houses that raise stone strongholds.',
-    requirementText: 'Own 2 Tier-2 Keeps',
+    requirementText: 'Own 2 Tier-2+ Strongholds',
     rewardFavor: 5,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 2,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -396,9 +399,10 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     title: 'Blood the Levies',
     flavor: 'Letters of commendation are written in enemy steel, not parchment.',
     requirementText: 'Destroy 3 enemy units',
-    rewardFavor: 3,
+    rewardFavor: 4,
     rewardCoin: 0,
-    rewardMaterials: 6,
+    rewardMaterials: 8,
+    rewardIron: 2,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -406,10 +410,11 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     id: 'writ_markets',
     title: 'Fill the Royal Coffers',
     flavor: 'Chartered markets keep coin moving north and silver flowing back to the Regent.',
-    requirementText: 'Own 2 Markets',
-    rewardFavor: 3,
-    rewardCoin: 8,
+    requirementText: 'Own 2 Markets or Guildhalls',
+    rewardFavor: 4,
+    rewardCoin: 10,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -421,17 +426,19 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     rewardFavor: 4,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
   writ_muster: {
     id: 'writ_muster',
     title: "Show the Crown's Strength",
-    flavor: 'Parade six banners under arms so every rival counts your spears twice.',
-    requirementText: 'End a turn with 6 or more units',
-    rewardFavor: 2,
+    flavor: 'Parade eight banners under arms so every rival counts your spears twice.',
+    requirementText: 'End a turn with 8 or more units',
+    rewardFavor: 3,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -439,32 +446,35 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     id: 'writ_tithe',
     title: "Pay the Regent's Tithe",
     flavor: 'Gold speaks louder than oaths when the Exchequer calls the roll.',
-    requirementText: 'Voluntarily pay 20 Coin',
-    rewardFavor: 3,
+    requirementText: 'Voluntarily pay 30 Coin',
+    rewardFavor: 4,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 0,
     isVoluntaryTithe: true,
-    titheCoinCost: 20,
+    titheCoinCost: 30,
   },
   writ_iron: {
     id: 'writ_iron',
     title: 'Secure the Iron Veins',
     flavor: "He who feeds the royal smithies holds the Council's ear.",
     requirementText: 'Own 2 Iron Mines (Deep Smelteries count)',
-    rewardFavor: 3,
+    rewardFavor: 4,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 3,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
   writ_raze: {
     id: 'writ_raze',
     title: "Break the Usurper's Walls",
-    flavor: "Tear down a rival's timberwork and let the wind whistle through his border.",
-    requirementText: 'Raze an enemy Palisade or Watchtower',
-    rewardFavor: 3,
+    flavor: "Tear down a rival's walls and let the wind whistle through his border.",
+    requirementText: 'Raze an enemy Palisade, Stone Wall, or Watchtower',
+    rewardFavor: 4,
     rewardCoin: 0,
-    rewardMaterials: 5,
+    rewardMaterials: 6,
+    rewardIron: 2,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
@@ -476,14 +486,22 @@ export const CROWN_WRITS: Readonly<Record<WritId, CrownWritDef>> = {
     rewardFavor: 6,
     rewardCoin: 0,
     rewardMaterials: 0,
+    rewardIron: 3,
     isVoluntaryTithe: false,
     titheCoinCost: 0,
   },
 };
 
 // ============================================================================
-// Tier-2 Keep Specializations
+// Tier-2 Keep Specializations (4) & Tier-3 Citadel Charters (4)
 // ============================================================================
+
+export const KEEP_SPECIALIZATION_IDS: readonly Exclude<KeepSpecialization, 'none'>[] = [
+  'garrison',
+  'market_town',
+  'granary_seat',
+  'forge_seat',
+] as const;
 
 export const KEEP_SPECIALIZATIONS: Readonly<
   Record<Exclude<KeepSpecialization, 'none'>, KeepSpecializationDef>
@@ -492,52 +510,110 @@ export const KEEP_SPECIALIZATIONS: Readonly<
     id: 'garrison',
     name: 'Garrison Seat',
     armyCapBonus: 1,
-    maxKeepHp: KEEP_GARRISON_MAX_HP,
-    keepRegenPerTurn: KEEP_GARRISON_REGEN,
-    territoryDefBonus: 0.1,
-    palisadeCap: PALISADE_CAP_GARRISON,
+    maxKeepHpBonus: KEEP_GARRISON_HP_BONUS,
+    keepRegenBonus: KEEP_GARRISON_REGEN_BONUS,
+    territoryDefBonus: 0.10,
+    palisadeCapBonus: WALL_CAP_GARRISON_BONUS,
     coinPerTurn: 0,
     marketCoinBonus: 0,
     annexCoinDiscount: 0,
     foodPerTurn: 0,
     farmFoodBonus: 0,
-    repeatFoodThreshold: KEEP_TIER2_REPEAT_FOOD_THRESHOLD,
+    ironPerTurn: 0,
+    unitIronDiscount: 0,
+    growthThresholdMultiplier: 1.0,
     description:
-      'Army Cap 4 -> 5; maxKeepHp 24 -> 34; regen +4 -> +6; friendly units in territory gain +10% Def; Palisade cap 4 -> 5.',
+      'Army Cap +1; Max Keep HP +14; Regen +2; +10% Def in territory; Wall cap +2.',
   },
   market_town: {
     id: 'market_town',
     name: 'Market Town',
     armyCapBonus: 0,
-    maxKeepHp: KEEP_BASE_MAX_HP,
-    keepRegenPerTurn: KEEP_BASE_REGEN,
+    maxKeepHpBonus: 0,
+    keepRegenBonus: 0,
     territoryDefBonus: 0,
-    palisadeCap: PALISADE_CAP_TIER2,
-    coinPerTurn: 4,
+    palisadeCapBonus: 0,
+    coinPerTurn: 5,
     marketCoinBonus: 2,
     annexCoinDiscount: MARKET_TOWN_ANNEX_COIN_DISCOUNT,
     foodPerTurn: 0,
     farmFoodBonus: 0,
-    repeatFoodThreshold: KEEP_TIER2_REPEAT_FOOD_THRESHOLD,
+    ironPerTurn: 0,
+    unitIronDiscount: 0,
+    growthThresholdMultiplier: 1.0,
     description:
-      '+4 Coin/turn; Markets in territory yield +2 Coin; Peaceful Annexation costs 20% less Coin.',
+      '+5 Coin/turn; Markets & Guildhalls +2 Coin; Peaceful Annexation costs 20% less Coin.',
   },
   granary_seat: {
     id: 'granary_seat',
     name: 'Granary Seat',
     armyCapBonus: 0,
-    maxKeepHp: KEEP_BASE_MAX_HP,
-    keepRegenPerTurn: KEEP_BASE_REGEN,
+    maxKeepHpBonus: 0,
+    keepRegenBonus: 0,
     territoryDefBonus: 0,
-    palisadeCap: PALISADE_CAP_TIER2,
+    palisadeCapBonus: 0,
     coinPerTurn: 0,
     marketCoinBonus: 0,
     annexCoinDiscount: 0,
-    foodPerTurn: 2,
+    foodPerTurn: 3,
     farmFoodBonus: 1,
-    repeatFoodThreshold: 28,
+    ironPerTurn: 0,
+    unitIronDiscount: 0,
+    growthThresholdMultiplier: 0.85,
     description:
-      '+2 Food/turn; Farms in territory yield +1 Food; repeat-milestone threshold drops 36 -> 28 Food.',
+      '+3 Food/turn; Farms +1 Food; automatic Winter Provision shield; growth thresholds -15%.',
+  },
+  forge_seat: {
+    id: 'forge_seat',
+    name: 'Forge Seat',
+    armyCapBonus: 0,
+    maxKeepHpBonus: 0,
+    keepRegenBonus: 0,
+    territoryDefBonus: 0,
+    palisadeCapBonus: 0,
+    coinPerTurn: 0,
+    marketCoinBonus: 0,
+    annexCoinDiscount: 0,
+    foodPerTurn: 0,
+    farmFoodBonus: 0,
+    ironPerTurn: 1,
+    unitIronDiscount: 2,
+    growthThresholdMultiplier: 1.0,
+    description:
+      '+1 Iron/turn; Iron Mines & Quarries in territory +1 yield; units trained here cost -2 Iron (min 0).',
+  },
+};
+
+export const CITADEL_CHARTER_IDS: readonly Exclude<CitadelCharter, 'none'>[] = [
+  'war_college',
+  'grand_exchange',
+  'royal_bastion',
+  'high_armory',
+] as const;
+
+export const CITADEL_CHARTERS: Readonly<
+  Record<Exclude<CitadelCharter, 'none'>, CitadelCharterDef>
+> = {
+  war_college: {
+    id: 'war_college',
+    name: 'War College',
+    description: 'Units trained at this Citadel begin at Rank 1 (3 XP) with an immediate Battle Honor.',
+  },
+  grand_exchange: {
+    id: 'grand_exchange',
+    name: 'Grand Exchange',
+    description: '+8 Coin/turn and -1 Coin upkeep (min 0) on every building inside this Citadel territory.',
+  },
+  royal_bastion: {
+    id: 'royal_bastion',
+    name: 'Royal Bastion',
+    description:
+      'Existing Palisades and Watchtowers in territory immediately upgrade to Level 2 for free, and Walls auto-repair +3 HP/turn.',
+  },
+  high_armory: {
+    id: 'high_armory',
+    name: 'High Armory',
+    description: 'Units trained at this Citadel gain +2 Max HP and -1 Coin upkeep (min 1 for elites).',
   },
 };
 
@@ -611,6 +687,7 @@ export const SEASONS: Readonly<Record<Season, SeasonDef>> = {
     subtitle: 'Thaw',
     riverMoveCost: 3,
     farmFoodDelta: 1,
+    loggingCampFoodDelta: 0,
     forestersLodgeFoodDelta: 0,
     granaryFoodDelta: 0,
     unitSightDelta: 0,
@@ -623,6 +700,7 @@ export const SEASONS: Readonly<Record<Season, SeasonDef>> = {
     subtitle: 'Campaigning',
     riverMoveCost: 2,
     farmFoodDelta: 0,
+    loggingCampFoodDelta: 0,
     forestersLodgeFoodDelta: 0,
     granaryFoodDelta: 0,
     unitSightDelta: 1,
@@ -635,6 +713,7 @@ export const SEASONS: Readonly<Record<Season, SeasonDef>> = {
     subtitle: 'Harvest',
     riverMoveCost: 2,
     farmFoodDelta: 1,
+    loggingCampFoodDelta: 1,
     forestersLodgeFoodDelta: 1,
     granaryFoodDelta: 1,
     unitSightDelta: 0,
@@ -647,6 +726,7 @@ export const SEASONS: Readonly<Record<Season, SeasonDef>> = {
     subtitle: 'Hard Frost',
     riverMoveCost: 1,
     farmFoodDelta: -2,
+    loggingCampFoodDelta: 0,
     forestersLodgeFoodDelta: 0,
     granaryFoodDelta: 0,
     unitSightDelta: 0,

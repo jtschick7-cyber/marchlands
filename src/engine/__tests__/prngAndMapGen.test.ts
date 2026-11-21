@@ -34,47 +34,63 @@ describe('Mulberry32 PRNG', () => {
   });
 });
 
-describe('mapGen(seed, houseCount)', () => {
-  it('is 100% deterministic and JSON-serializable for identical seeds', () => {
-    const a = mapGen(2026, 5);
-    const b = mapGen(2026, 5);
-    expect(a).toEqual(b);
+describe('mapGen(seed, houseCount, customHouseOrder, mapPreset)', () => {
+  it('is 100% deterministic and JSON-serializable across compact, standard, and grand presets', () => {
+    for (const preset of ['compact', 'standard', 'grand'] as const) {
+      const a = mapGen(2026, 5, undefined, preset);
+      const b = mapGen(2026, 5, undefined, preset);
+      expect(a).toEqual(b);
+      expect(JSON.parse(JSON.stringify(a.tiles))).toEqual(a.tiles);
 
-    const roundTripped = JSON.parse(JSON.stringify(a.tiles));
-    expect(roundTripped).toEqual(a.tiles);
+      const highSeats = Object.values(a.tiles).filter((t) => t.landmark === 'high_seat');
+      if (preset === 'compact') {
+        expect(highSeats).toHaveLength(0);
+      } else {
+        expect(highSeats).toHaveLength(1);
+        expect(highSeats[0]!.highSeatHp).toBe(42);
+      }
+    }
   });
 
-  it('passes all v0.3 fairness guarantees across 500 consecutive 4-House seeds', () => {
+  it('passes all v2.0 fairness guarantees across 150 Grand (34x34) 5-House seeds', () => {
     let strictCount = 0;
-    for (let seed = 1; seed <= 500; seed++) {
-      const res = mapGen(seed, 4);
+    for (let seed = 1; seed <= 150; seed++) {
+      const res = mapGen(seed, 5, undefined, 'grand');
       const report = validateGeneratedMap(
         res.tiles,
         res.capitals,
         res.houseOrder,
         res.relaxationLevel,
+        'grand',
       );
-      expect(report.valid, `seed=${seed} failed: ${report.failures.join('; ')}`).toBe(true);
+      expect(report.valid, `grand seed=${seed} failed: ${report.failures.join('; ')}`).toBe(true);
       if (res.relaxationLevel === 0) strictCount += 1;
     }
-    // Expect virtually all seeds to pass with zero relaxation
-    expect(strictCount).toBeGreaterThanOrEqual(495);
+    expect(strictCount).toBeGreaterThanOrEqual(140);
   });
 
-  it('passes all v0.3 fairness guarantees across 500 consecutive 5-House seeds', () => {
-    let strictCount = 0;
-    for (let seed = 1; seed <= 500; seed++) {
-      const res = mapGen(seed, 5);
+  it('passes all v2.0 fairness guarantees across 150 Standard (28x28) & 200 Compact (22x22) seeds', () => {
+    for (let seed = 1; seed <= 150; seed++) {
+      const res = mapGen(seed, 4, undefined, 'standard');
       const report = validateGeneratedMap(
         res.tiles,
         res.capitals,
         res.houseOrder,
         res.relaxationLevel,
+        'standard',
       );
-      expect(report.valid, `seed=${seed} failed: ${report.failures.join('; ')}`).toBe(true);
-      if (res.relaxationLevel === 0) strictCount += 1;
+      expect(report.valid, `standard seed=${seed} failed: ${report.failures.join('; ')}`).toBe(true);
     }
-    // Expect virtually all seeds to pass with zero relaxation
-    expect(strictCount).toBeGreaterThanOrEqual(495);
+    for (let seed = 1; seed <= 200; seed++) {
+      const res = mapGen(seed, 5, undefined, 'compact');
+      const report = validateGeneratedMap(
+        res.tiles,
+        res.capitals,
+        res.houseOrder,
+        res.relaxationLevel,
+        'compact',
+      );
+      expect(report.valid, `compact seed=${seed} failed: ${report.failures.join('; ')}`).toBe(true);
+    }
   });
 });

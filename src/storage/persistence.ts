@@ -1,15 +1,14 @@
 /**
- * Marchlands (Spec v0.3) — IndexedDB Persistence & Save Validation
+ * Marchlands (Spec v2.0) — IndexedDB Persistence & Save Validation
  *
- * Uses `idb` targeting database `marchlands_db` with `CURRENT_SCHEMA_VERSION`.
+ * Uses `idb` targeting database `marchlands_db` with `CURRENT_SCHEMA_VERSION = 2`.
  * SaveMetadata is stored alongside GameState (never inside GameState).
- * All reads and writes are wrapped in try/catch so storage failures never break
- * the in-memory session.
+ * Clean break from Spec v0.3 saves: rejects non-2.0 payloads gracefully.
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { GameMode, GameState, HouseId, SaveMetadata } from '../types/game.ts';
-import { CURRENT_SCHEMA_VERSION, GRID_SIZE, SPEC_VERSION } from '../data/index.ts';
+import type { GameMode, GameState, HouseId, MapPreset, SaveMetadata } from '../types/game.ts';
+import { CURRENT_SCHEMA_VERSION, SPEC_VERSION, VALID_GRID_SIZES } from '../data/index.ts';
 
 export const DB_NAME = 'marchlands_db';
 export const SAVES_STORE = 'saves';
@@ -32,11 +31,15 @@ export type StorageResult<T> =
   | { readonly ok: false; readonly error: string };
 
 const VALID_MODES = new Set<GameMode>(['dominion', 'chronicle']);
+const VALID_MAP_PRESETS = new Set<MapPreset>(['compact', 'standard', 'grand']);
 const VALID_DIFFICULTIES = new Set(['easy', 'normal', 'hard']);
 const VALID_PHASES = new Set([
   'player_command',
   'draft_modal',
   'specialization_modal',
+  'citadel_modal',
+  'honor_modal',
+  'commander_trait_modal',
   'event_modal',
   'ai_turn',
   'game_over',
@@ -47,8 +50,8 @@ function isPlainRecord(val: unknown): val is Record<string, unknown> {
 }
 
 /**
- * Validates that an unknown payload conforms to Marchlands Spec v0.3 GameState.
- * Rejects mismatched specVersion or malformed payloads gracefully.
+ * Validates that an unknown payload conforms to Marchlands Spec v2.0 GameState.
+ * Rejects mismatched specVersion (including v0.3 saves) or malformed payloads gracefully.
  */
 export function validateGameStatePayload(
   raw: unknown,
@@ -72,12 +75,19 @@ export function validateGameStatePayload(
     return { ok: false, error: `Invalid game mode "${String(raw.mode)}".` };
   }
 
+  if (typeof raw.mapPreset !== 'string' || !VALID_MAP_PRESETS.has(raw.mapPreset as MapPreset)) {
+    return { ok: false, error: `Invalid mapPreset "${String(raw.mapPreset)}".` };
+  }
+
   if (typeof raw.difficulty !== 'string' || !VALID_DIFFICULTIES.has(raw.difficulty)) {
     return { ok: false, error: `Invalid difficulty "${String(raw.difficulty)}".` };
   }
 
-  if (raw.gridSize !== GRID_SIZE) {
-    return { ok: false, error: `Invalid gridSize "${String(raw.gridSize)}" (expected ${GRID_SIZE}).` };
+  if (typeof raw.gridSize !== 'number' || !VALID_GRID_SIZES.includes(raw.gridSize)) {
+    return {
+      ok: false,
+      error: `Invalid gridSize "${String(raw.gridSize)}" (expected ${VALID_GRID_SIZES.join(', ')}).`,
+    };
   }
 
   if (typeof raw.turnNumber !== 'number' || raw.turnNumber < 1) {
@@ -92,19 +102,29 @@ export function validateGameStatePayload(
     return { ok: false, error: `Invalid phase "${String(raw.phase)}".` };
   }
 
-  if (typeof raw.activeHouseId !== 'string' || !Array.isArray(raw.houseOrder) || raw.houseOrder.length === 0) {
+  if (
+    typeof raw.activeHouseId !== 'string' ||
+    !Array.isArray(raw.houseOrder) ||
+    raw.houseOrder.length === 0
+  ) {
     return { ok: false, error: 'Missing activeHouseId or houseOrder.' };
   }
 
   if (
     !isPlainRecord(raw.tiles) ||
     !isPlainRecord(raw.keeps) ||
+    !isPlainRecord(raw.outposts) ||
     !isPlainRecord(raw.units) ||
+    !isPlainRecord(raw.commanders) ||
     !isPlainRecord(raw.houses) ||
     !isPlainRecord(raw.fog) ||
     !isPlainRecord(raw.crown)
   ) {
-    return { ok: false, error: 'Missing required world state records (tiles, keeps, units, houses, fog, crown).' };
+    return {
+      ok: false,
+      error:
+        'Missing required world state records (tiles, keeps, outposts, units, commanders, houses, fog, crown).',
+    };
   }
 
   if (!Array.isArray(raw.chronicle)) {
@@ -115,24 +135,9 @@ export function validateGameStatePayload(
     return { ok: false, error: 'activeHouseId does not exist in houses map.' };
   }
 
-  // Normalize unit fields for forward compatibility with earlier v0.3 autosaves
-  const normalizedUnits: Record<string, unknown> = {};
-  for (const [uid, rawUnit] of Object.entries(raw.units)) {
-    if (isPlainRecord(rawUnit)) {
-      normalizedUnits[uid] = {
-        ...rawUnit,
-        xp: typeof rawUnit.xp === 'number' ? rawUnit.xp : 0,
-        isFortified: typeof rawUnit.isFortified === 'boolean' ? rawUnit.isFortified : false,
-      };
-    }
-  }
-
   return {
     ok: true,
-    state: {
-      ...(raw as unknown as GameState),
-      units: normalizedUnits as GameState['units'],
-    },
+    state: raw as unknown as GameState,
   };
 }
 
@@ -144,6 +149,7 @@ export function buildSaveMetadata(slotId: string, state: GameState): SaveMetadat
     turnNumber: state.turnNumber,
     houseId,
     mode: state.mode,
+    mapPreset: state.mapPreset,
   };
 }
 
@@ -162,10 +168,6 @@ function getDb(): Promise<IDBPDatabase<MarchlandsDbSchema>> {
   return dbPromise;
 }
 
-/**
- * Requests persistent storage permission on app initialization so mobile browsers
- * protect multi-session campaigns from automatic eviction.
- */
 export async function requestPersistentStorage(): Promise<boolean> {
   try {
     if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
@@ -251,9 +253,6 @@ export async function deleteSaveSlot(slotId: string): Promise<StorageResult<void
   }
 }
 
-/**
- * Serializes a campaign into a portable JSON export string with metadata envelope.
- */
 export function exportSaveJson(state: GameState, slotId = 'export'): string {
   const payload: SaveRecord = {
     metadata: buildSaveMetadata(slotId, state),
@@ -262,17 +261,12 @@ export function exportSaveJson(state: GameState, slotId = 'export'): string {
   return JSON.stringify(payload, null, 2);
 }
 
-/**
- * Parses and strictly validates an imported Save JSON string.
- * Accepts either a `{ metadata, state }` envelope or a bare `GameState` object.
- */
 export function importSaveJson(
   jsonText: string,
 ): StorageResult<{ readonly state: GameState; readonly metadata: SaveMetadata }> {
   try {
     const parsed: unknown = JSON.parse(jsonText);
-    const candidateState =
-      isPlainRecord(parsed) && 'state' in parsed ? parsed.state : parsed;
+    const candidateState = isPlainRecord(parsed) && 'state' in parsed ? parsed.state : parsed;
     const validated = validateGameStatePayload(candidateState);
     if (!validated.ok) {
       return { ok: false, error: validated.error };
@@ -285,7 +279,8 @@ export function importSaveJson(
       typeof rawMeta.savedAtIso === 'string' &&
       typeof rawMeta.turnNumber === 'number' &&
       typeof rawMeta.houseId === 'string' &&
-      typeof rawMeta.mode === 'string'
+      typeof rawMeta.mode === 'string' &&
+      typeof rawMeta.mapPreset === 'string'
         ? (rawMeta as unknown as SaveMetadata)
         : buildSaveMetadata('imported', validated.state);
 

@@ -1,5 +1,5 @@
 /**
- * Marchlands (Spec v0.3) — Inline SVG Heraldry, Unit Silhouettes, Tile Illustrations & HUD Icons
+ * Marchlands (Spec v2.0) — Inline SVG Heraldry, Unit Silhouettes, Tile Illustrations & HUD Icons
  *
  * Exact colorblind-safe hex palette from docs/DESIGN_TOKENS.md.
  * Zero external raster images — 100% crisp inline vector art.
@@ -11,6 +11,7 @@ import { HOUSES } from '../../data/index.ts';
 export type HudIconKind =
   | 'food'
   | 'materials'
+  | 'iron'
   | 'coin'
   | 'favor'
   | 'score'
@@ -50,6 +51,13 @@ export function ResourceIconSvg({
           <polygon points="2.5,11 5.5,6.5 11.5,6.5 13.5,11" fill="#D97706" stroke="#FEF3C7" strokeWidth="1" />
           <path d="M4.5 11 H11.5 M6 4 L12 9.5" stroke="#F59E0B" strokeWidth="1.4" />
           <polygon points="3.5,13 5,10 11,10 12.5,13" fill="#B45309" stroke="#FDE68A" strokeWidth="0.8" />
+        </g>
+      )}
+      {kind === 'iron' && (
+        <g strokeLinejoin="round" strokeLinecap="round">
+          <polygon points="2,11.5 5,6 11,6 14,11.5" fill="#60A5FA" stroke="#E0F2FE" strokeWidth="1" />
+          <polygon points="5,6 11,6 9.8,8.5 6.2,8.5" fill="#DBEAFE" />
+          <polygon points="2,11.5 6.2,8.5 9.8,8.5 14,11.5 12.5,13.5 3.5,13.5" fill="#2563EB" stroke="#93C5FD" strokeWidth="0.8" />
         </g>
       )}
       {kind === 'coin' && (
@@ -592,6 +600,59 @@ export function UnitFigureSvg({
           <circle cx="24.5" cy="29.8" r="1.2" fill={steelHi} stroke={ink} strokeWidth="0.6" />
         </g>
       );
+
+    case 'trebuchet':
+      return (
+        <g stroke={ink} strokeWidth="0.78" strokeLinejoin="round" strokeLinecap="round">
+          {/* Heavy timber ground trestle */}
+          <rect x="4.5" y="27.2" width="27" height="3.8" rx="1" fill="#78350F" />
+          {/* Tall A-frame timber towers */}
+          <path d="M9 27.5 L17.5 11.5 L25.5 27.5" fill="none" stroke="#92400E" strokeWidth="2.6" />
+          <path d="M12.5 27.5 L17.5 13.5 L22.5 27.5" fill="none" stroke="#B45309" strokeWidth="1.4" />
+          {/* Long throwing beam pivoted at top */}
+          <path d="M6.5 19.5 L30 5.5" stroke="#D97706" strokeWidth="2.4" />
+          {/* Iron-bound counterweight box */}
+          <rect x="24.5" y="10.5" width="7.2" height="7.8" rx="1" fill={steelDark} stroke={steel} strokeWidth="0.95" />
+          <path d="M28.1 6.8 V10.5" stroke={steelHi} strokeWidth="1.2" />
+          {/* Sling pouch & stone boulder */}
+          <path d="M6.8 19.5 L4.5 24.2" stroke="#FDE68A" strokeWidth="1.1" />
+          <circle cx="4.8" cy="25.2" r="2.6" fill={steel} stroke={ink} strokeWidth="0.8" />
+          {/* House war pennant */}
+          <polygon points="17.5,11.5 17.5,6.2 23.2,8.2 17.5,10" fill={primary} stroke={darkTrim} strokeWidth="0.75" />
+          {/* Stabilizer wheels */}
+          <circle cx="9.5" cy="30.6" r="2.6" fill="#451A03" stroke={steelDark} strokeWidth="1" />
+          <circle cx="26.5" cy="30.6" r="2.6" fill="#451A03" stroke={steelDark} strokeWidth="1" />
+        </g>
+      );
+
+    case 'lord_commander':
+      return (
+        <g stroke={ink} strokeWidth="0.78" strokeLinejoin="round" strokeLinecap="round">
+          {/* Flowing royal House war-cloak */}
+          <path d="M11.5 14.5 L4.5 29.5 L14.5 28.5 L24 29.2 L26.5 16 Z" fill={primary} />
+          <path d="M11.5 14.5 L5.8 29 L12.2 28.2 Z" fill={darkTrim} opacity="0.45" stroke="none" />
+          {/* Gilded plate greaves */}
+          <path d="M13 25.5 H16.8 L16.2 32.4 H12.2 Z" fill={steel} />
+          <path d="M19.2 25.5 H23 L23.8 32.4 H19.6 Z" fill={steelDark} />
+          {/* Marshal war-banner & gilded greatsword */}
+          <path d="M27.5 32.5 V3.2" stroke={gold} strokeWidth="1.8" />
+          <polygon points="27.5,3.5 35,6.5 27.5,11.5" fill={primary} stroke={gold} strokeWidth="0.95" />
+          <polygon points="10.2,23.5 4.2,9.5 6,8.6 12,22.5" fill={steelHi} />
+          <path d="M8.5 22.8 L13.4 20.6" stroke={gold} strokeWidth="2.1" />
+          {/* Masterwork gold-trimmed plate breastplate */}
+          <path d="M11.6 14.8 H24.2 L25 26.8 H10.8 Z" fill={steel} />
+          <path d="M14.2 15.2 H21.6 V26.4 H14.2 Z" fill={primary} />
+          <path d="M11.6 15.2 H24.2 M11.4 21.5 H24.4" stroke={gold} strokeWidth="1.35" />
+          {/* Gilded pauldrons */}
+          <path d="M9 17.5 C9 13.8 14 13.5 14.5 17.5 Z" fill={gold} />
+          <path d="M21.3 17.5 C21.8 13.5 26.8 13.8 26.8 17.5 Z" fill={goldDark} />
+          {/* Crowned Marshal Great Helm */}
+          <path d="M13.8 13.8 V8.8 A4.1 4.1 0 0 1 22 8.8 V13.8 L17.9 14.9 Z" fill={steel} />
+          <path d="M15 10.4 H20.8" stroke={ink} strokeWidth="1.5" />
+          {/* Golden coronet crown */}
+          <polygon points="13.2,8.4 14.2,4.4 16.3,6.6 17.9,3.4 19.5,6.6 21.6,4.4 22.6,8.4" fill={gold} stroke={goldDark} strokeWidth="0.75" />
+        </g>
+      );
   }
 }
 
@@ -707,13 +768,35 @@ export function UnitSilhouetteSvg({
           <circle cx="16" cy="17.8" r="2" />
         </g>
       );
+    case 'trebuchet':
+      return (
+        <g fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 18.5 H19 M7.5 18.5 L12 8.5 L16.5 18.5" />
+          <path d="M5.5 13 L18.5 5.5" strokeWidth="2.2" />
+          <rect x="15.5" y="9" width="3.5" height="4" fill={color} fillOpacity="0.35" />
+          <circle cx="5.5" cy="16.2" r="1.6" fill={color} />
+        </g>
+      );
+    case 'lord_commander':
+      return (
+        <g fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5.5 11.5 L7.2 5.5 L10 8.5 L12 4.5 L14 8.5 L16.8 5.5 L18.5 11.5 Z" fill={color} fillOpacity="0.32" />
+          <path d="M6.5 13.5 H17.5 V16 C17.5 18.2 15 19.6 12 20.5 C9 19.6 6.5 18.2 6.5 16 Z" fill={color} fillOpacity="0.2" />
+        </g>
+      );
   }
 }
 
 /**
  * Grounded miniature architectural illustrations (24x24 viewBox) for Improvements.
  */
-export function ImprovementGlyphSvg({ id }: { readonly id: ImprovementId }) {
+export function ImprovementGlyphSvg({
+  id,
+  level = 1,
+}: {
+  readonly id: ImprovementId;
+  readonly level?: 1 | 2;
+}) {
   switch (id) {
     case 'farm':
       return (
@@ -797,7 +880,21 @@ export function ImprovementGlyphSvg({ id }: { readonly id: ImprovementId }) {
         </g>
       );
     case 'palisade':
-      return (
+      return level === 2 ? (
+        <g>
+          {/* Lv2 Stone Curtain Wall */}
+          <ellipse cx="12" cy="19.2" rx="10.2" ry="2.8" fill="#1E2430" fillOpacity="0.32" />
+          <path
+            d="M2.8 18.8 V7 H6 V9.5 H9.5 V7 H14.5 V9.5 H18 V7 H21.2 V18.8 Z"
+            fill="#94A3B8"
+            stroke="#1E2430"
+            strokeWidth="0.95"
+            strokeLinejoin="round"
+          />
+          <path d="M3.4 13 H20.6 M8 13 V18.5 M16 13 V18.5" stroke="#475569" strokeWidth="0.85" />
+          <path d="M3.4 9.5 H20.6" stroke="#E2E8F0" strokeWidth="0.7" opacity="0.65" />
+        </g>
+      ) : (
         <g>
           <ellipse cx="12" cy="19" rx="10" ry="2.8" fill="#1E2430" fillOpacity="0.28" />
           <g stroke="#3B2314" strokeWidth="0.75" fill="#92400E">
@@ -810,7 +907,17 @@ export function ImprovementGlyphSvg({ id }: { readonly id: ImprovementId }) {
         </g>
       );
     case 'watchtower':
-      return (
+      return level === 2 ? (
+        <g>
+          {/* Lv2 Stone Bastion Tower */}
+          <ellipse cx="12" cy="19.5" rx="8.5" ry="2.7" fill="#1E2430" fillOpacity="0.36" />
+          <path d="M6.5 19 L7.5 6.5 H16.5 L17.5 19 Z" fill="#64748B" stroke="#1E2430" strokeWidth="0.95" />
+          <path d="M5.5 6.5 V4 H8.5 V6.5 H10.8 V4 H13.2 V6.5 H15.5 V4 H18.5 V6.5 Z" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.85" />
+          <rect x="11.2" y="10" width="1.6" height="4.5" fill="#0F172A" />
+          <path d="M12 1.2 C14.6 3.2 14.6 5.2 12 5.6 C9.4 5.2 9.4 3.2 12 1.2 Z" fill="#F97316" />
+          <circle cx="12" cy="3.8" r="1.2" fill="#FEF08A" />
+        </g>
+      ) : (
         <g>
           <ellipse cx="12" cy="19.5" rx="7.5" ry="2.5" fill="#1E2430" fillOpacity="0.32" />
           <path d="M8 19 L9 7.5 H15 L16 19 Z" fill="#94A3B8" stroke="#1E2430" strokeWidth="0.95" />
@@ -818,6 +925,82 @@ export function ImprovementGlyphSvg({ id }: { readonly id: ImprovementId }) {
           {/* Brazier flame */}
           <path d="M12 2.2 C14.5 4.2 14.5 6.2 12 6.5 C9.5 6.2 9.5 4.2 12 2.2 Z" fill="#F97316" />
           <circle cx="12" cy="4.8" r="1.2" fill="#FEF08A" />
+        </g>
+      );
+    case 'logging_camp':
+      return (
+        <g>
+          <ellipse cx="12" cy="19" rx="9.5" ry="2.8" fill="#1E2430" fillOpacity="0.28" />
+          <rect x="4" y="11" width="9" height="7.5" rx="0.8" fill="#78350F" stroke="#3B2314" strokeWidth="0.85" />
+          <polygon points="3,11.5 8.5,6.8 14,11.5" fill="#92400E" stroke="#3B2314" strokeWidth="0.85" />
+          <circle cx="16.2" cy="17.2" r="2" fill="#D97706" stroke="#3B2314" strokeWidth="0.8" />
+          <circle cx="19.2" cy="17.2" r="2" fill="#B45309" stroke="#3B2314" strokeWidth="0.8" />
+          <circle cx="17.7" cy="14.2" r="2" fill="#F59E0B" stroke="#3B2314" strokeWidth="0.8" />
+        </g>
+      );
+    case 'stone_quarry':
+      return (
+        <g>
+          <ellipse cx="12" cy="19.2" rx="9.8" ry="2.8" fill="#1E2430" fillOpacity="0.32" />
+          <rect x="4" y="13.5" width="7.5" height="5" rx="0.6" fill="#94A3B8" stroke="#1E2430" strokeWidth="0.85" />
+          <rect x="12" y="13.5" width="8" height="5" rx="0.6" fill="#64748B" stroke="#1E2430" strokeWidth="0.85" />
+          <rect x="7.5" y="8.5" width="8" height="5" rx="0.6" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.85" />
+          <path d="M18 13.5 V5.5 L12.5 7.5" stroke="#92400E" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+        </g>
+      );
+    case 'highland_pasture':
+      return (
+        <g>
+          <ellipse cx="12" cy="18.8" rx="10" ry="3" fill="#4D7C0F" fillOpacity="0.45" />
+          <path d="M4 18 V12 M9 18 V12 M15 18 V12 M20 18 V12 M3.5 14 H20.5 M3.5 16.5 H20.5" stroke="#92400E" strokeWidth="1.25" strokeLinecap="round" />
+          <path d="M8.5 13 C10 10.5 14 10.5 15.5 12.2 L17.5 10.5 L18 12.8 L15.8 14 H9.2 Z" fill="#78350F" stroke="#1E2430" strokeWidth="0.65" />
+        </g>
+      );
+    case 'river_fishery':
+      return (
+        <g>
+          <path d="M3 16.5 Q12 14.5 21 16.5" stroke="#38BDF8" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          <rect x="4.5" y="11.5" width="11" height="2.4" fill="#92400E" stroke="#3B2314" strokeWidth="0.8" />
+          <path d="M6.5 13.8 V18 M13.5 13.8 V18" stroke="#78350F" strokeWidth="1.4" />
+          <path d="M14.5 11.5 L19.5 6.5 L18.5 15" stroke="#E2E8F0" strokeWidth="1.1" fill="none" />
+          <ellipse cx="17.8" cy="17.5" rx="2.6" ry="1.2" fill="#BAE6FD" stroke="#0369A1" strokeWidth="0.65" />
+        </g>
+      );
+    case 'stone_bridge':
+      return (
+        <g>
+          <path d="M2 16.5 Q12 9 22 16.5" stroke="#94A3B8" strokeWidth="4.2" fill="none" strokeLinecap="round" />
+          <path d="M2 16.5 Q12 9 22 16.5" stroke="#E2E8F0" strokeWidth="1.3" fill="none" strokeDasharray="3 2" />
+          <path d="M5 14.5 V18.5 M19 14.5 V18.5" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
+        </g>
+      );
+    case 'peak_beacon':
+      return (
+        <g>
+          <polygon points="4.5,19 12,7 19.5,19" fill="#64748B" stroke="#1E2430" strokeWidth="0.9" />
+          <rect x="9.5" y="7" width="5" height="3.2" fill="#CBD5E1" stroke="#1E2430" strokeWidth="0.8" />
+          <path d="M12 1.8 C15 4.2 15 7 12 7.2 C9 7 9 4.2 12 1.8 Z" fill="#F97316" />
+          <circle cx="12" cy="5.2" r="1.4" fill="#FEF08A" />
+        </g>
+      );
+    case 'barracks':
+      return (
+        <g>
+          <ellipse cx="12" cy="19.2" rx="9.8" ry="2.8" fill="#1E2430" fillOpacity="0.32" />
+          <rect x="4.5" y="10" width="15" height="8.8" rx="1" fill="#64748B" stroke="#1E2430" strokeWidth="0.95" />
+          <polygon points="3.5,10.5 12,5 20.5,10.5" fill="#991B1B" stroke="#1E2430" strokeWidth="0.9" />
+          <rect x="10.2" y="13.5" width="3.6" height="5.3" fill="#1E2430" />
+          <path d="M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5" stroke="#E2E8F0" strokeWidth="1.2" opacity="0.85" />
+        </g>
+      );
+    case 'siege_workshop':
+      return (
+        <g>
+          <ellipse cx="12" cy="19.2" rx="9.8" ry="2.8" fill="#1E2430" fillOpacity="0.32" />
+          <rect x="4" y="10.5" width="11.5" height="8" rx="0.8" fill="#92400E" stroke="#3B2314" strokeWidth="0.9" />
+          <path d="M14.5 18.5 V5.5 L21 9.5" stroke="#D97706" strokeWidth="1.8" fill="none" strokeLinecap="round" />
+          <circle cx="17.5" cy="16.2" r="3.4" fill="#78350F" stroke="#CBD5E1" strokeWidth="1.1" />
+          <circle cx="17.5" cy="16.2" r="1" fill="#F8FAFC" />
         </g>
       );
     case 'foresters_lodge':
@@ -923,6 +1106,23 @@ export function LandmarkGlyphSvg({ landmark }: { readonly landmark: LandmarkType
           <polygon points="9.5,18.8 12,13.2 14.5,18.8" fill="#7F1D1D" />
           {/* Crossed crimson blades */}
           <path d="M8.5 12.2 L15.5 8.2 M15.5 12.2 L8.5 8.2" stroke="#FCA5A5" strokeWidth="1.2" strokeLinecap="round" />
+        </g>
+      );
+    case 'high_seat':
+      return (
+        <g>
+          <ellipse cx="12" cy="19.8" rx="10.5" ry="3" fill="#1E2430" fillOpacity="0.38" />
+          {/* Ruined imperial stone fortress spires */}
+          <path
+            d="M3.5 19 V9.5 H6.5 V12 H9 V5.5 L12 3.2 L15 5.5 V12 H17.5 V9.5 H20.5 V19 Z"
+            fill="#CBD5E1"
+            stroke="#1E2430"
+            strokeWidth="0.95"
+            strokeLinejoin="round"
+          />
+          <path d="M9.5 19 V13.5 A2.5 2.5 0 0 1 14.5 13.5 V19 Z" fill="#1E2430" />
+          {/* Golden Regent Crown Emblem */}
+          <polygon points="9,10.5 9.8,7.5 11.2,9 12,6.8 12.8,9 14.2,7.5 15,10.5" fill="#FACC15" stroke="#92400E" strokeWidth="0.65" />
         </g>
       );
     case 'none':

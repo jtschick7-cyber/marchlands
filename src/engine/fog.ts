@@ -1,48 +1,53 @@
 /**
- * Marchlands (Spec v0.3) — Fog of War Engine
+ * Marchlands (Spec v2.0) — Fog of War Engine
  *
  * Fog is strictly per-House ('unexplored' | 'explored' | 'visible') and honest
- * for both human and AI players.
+ * for both human and AI players. Uses spatial indexing for fast 34x34 updates.
  */
 
-import type { CoordKey, FogStatus, GameState, HouseId, KeepState, UnitState } from '../types/game.ts';
+import type {
+  CoordKey,
+  FogStatus,
+  GameState,
+  HouseId,
+  KeepState,
+  OutpostState,
+  UnitState,
+} from '../types/game.ts';
 import {
   BASE_KEEP_SIGHT,
+  OUTPOST_SIGHT,
+  PEAK_BEACON_SIGHT_RADIUS,
   SEASONS,
   SIGNAL_BASTION_SIGHT_RADIUS,
   UNITS,
   WATCHTOWER_SIGHT_RADIUS,
 } from '../data/index.ts';
 import { coordKey, getTilesInRadius } from './coords.ts';
-import { getSeason, houseHasDecree } from './stateHelpers.ts';
+import { getIndexedHouseTiles, getSpatialIndex } from './spatialIndex.ts';
+import { getSeason, houseHasDecree, unitHasHonor } from './stateHelpers.ts';
 
 export function getUnitSightRadius(state: GameState, unit: UnitState): number {
-  const house = state.houses[unit.houseId];
   const season = SEASONS[getSeason(state.turnNumber)];
   let sight = UNITS[unit.typeId].sight;
-  if (unit.houseId === 'solis') {
-    sight += 1;
-  }
-  if (house && houseHasDecree(house, 'decree_highland_scouts')) {
+  if (unit.houseId === 'solis') sight += 1;
+  if (unitHasHonor(unit, 'honor_high_watch') || unitHasHonor(unit, 'honor_outrider')) {
     sight += 1;
   }
   sight += season.unitSightDelta;
-  return sight;
+  return Math.max(1, sight);
 }
 
 export function getKeepSightRadius(keep: KeepState): number {
-  let sight = BASE_KEEP_SIGHT;
-  if (keep.ownerHouseId === 'solis') {
-    sight += 1;
-  }
+  let sight = keep.tier === 3 ? BASE_KEEP_SIGHT + 1 : BASE_KEEP_SIGHT;
+  if (keep.ownerHouseId === 'solis') sight += 1;
   return sight;
 }
 
-/**
- * Recomputes active visibility for `houseId`, demoting previously visible tiles
- * to 'explored' and marking all tiles within friendly sight sources as 'visible'.
- * Increments `house.stats.tilesRevealed` for every tile leaving 'unexplored'.
- */
+export function getOutpostSightRadius(outpost: OutpostState): number {
+  return OUTPOST_SIGHT + (outpost.ownerHouseId === 'solis' ? 1 : 0);
+}
+
 export function recomputeHouseFog(state: GameState, houseId: HouseId): GameState {
   const prevFog = state.fog[houseId];
   const house = state.houses[houseId];
@@ -61,39 +66,48 @@ export function recomputeHouseFog(state: GameState, houseId: HouseId): GameState
     nextFog[k] = 'visible';
   };
 
-  // 1. Owned territory tiles are always visible
-  for (const tile of Object.values(state.tiles)) {
-    if (tile.ownerHouseId === houseId) {
-      markVisible(tile.key);
-      if (tile.improvement === 'watchtower') {
-        for (const c of getTilesInRadius(tile.x, tile.y, WATCHTOWER_SIGHT_RADIUS, state.gridSize)) {
-          markVisible(coordKey(c.x, c.y));
-        }
-      } else if (tile.improvement === 'signal_bastion') {
-        for (const c of getTilesInRadius(
-          tile.x,
-          tile.y,
-          SIGNAL_BASTION_SIGHT_RADIUS,
-          state.gridSize,
-        )) {
-          markVisible(coordKey(c.x, c.y));
-        }
+  const watchtowerBonus = houseHasDecree(house, 'decree_border_wardens') ? 1 : 0;
+
+  // 1. Owned territory tiles & sight buildings
+  for (const tile of getIndexedHouseTiles(state, houseId)) {
+    markVisible(tile.key);
+    if (tile.improvement === 'watchtower') {
+      const r = WATCHTOWER_SIGHT_RADIUS + watchtowerBonus;
+      for (const c of getTilesInRadius(tile.x, tile.y, r, state.gridSize)) {
+        markVisible(coordKey(c.x, c.y));
+      }
+    } else if (tile.improvement === 'signal_bastion') {
+      const r = SIGNAL_BASTION_SIGHT_RADIUS + watchtowerBonus;
+      for (const c of getTilesInRadius(tile.x, tile.y, r, state.gridSize)) {
+        markVisible(coordKey(c.x, c.y));
+      }
+    } else if (tile.improvement === 'peak_beacon') {
+      for (const c of getTilesInRadius(tile.x, tile.y, PEAK_BEACON_SIGHT_RADIUS, state.gridSize)) {
+        markVisible(coordKey(c.x, c.y));
       }
     }
   }
 
+  const idx = getSpatialIndex(state);
+
   // 2. Friendly Keeps
-  for (const keep of Object.values(state.keeps)) {
-    if (keep.ownerHouseId !== houseId) continue;
+  for (const keep of idx.keepsByOwner[houseId] ?? []) {
     const radius = getKeepSightRadius(keep);
     for (const c of getTilesInRadius(keep.x, keep.y, radius, state.gridSize)) {
       markVisible(coordKey(c.x, c.y));
     }
   }
 
-  // 3. Friendly Units
-  for (const unit of Object.values(state.units)) {
-    if (unit.houseId !== houseId) continue;
+  // 3. Friendly Frontier Outposts
+  for (const outpost of idx.outpostsByOwner[houseId] ?? []) {
+    const radius = getOutpostSightRadius(outpost);
+    for (const c of getTilesInRadius(outpost.x, outpost.y, radius, state.gridSize)) {
+      markVisible(coordKey(c.x, c.y));
+    }
+  }
+
+  // 4. Friendly Units
+  for (const unit of idx.unitsByOwner[houseId] ?? []) {
     const radius = getUnitSightRadius(state, unit);
     for (const c of getTilesInRadius(unit.x, unit.y, radius, state.gridSize)) {
       markVisible(coordKey(c.x, c.y));
@@ -122,10 +136,6 @@ export function recomputeHouseFog(state: GameState, houseId: HouseId): GameState
   };
 }
 
-/**
- * Permanently reveals (at least 'explored', preserving 'visible') all tiles
- * within `radius` (Chebyshev) of (cx, cy) for `houseId`.
- */
 export function permanentlyRevealRadius(
   state: GameState,
   houseId: HouseId,

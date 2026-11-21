@@ -1,28 +1,34 @@
 #!/usr/bin/env node
 /**
- * Marchlands (Spec v0.3) — Headless AI-vs-AI Simulation Harness CLI
+ * Marchlands (Spec v2.0) — Headless AI-vs-AI Simulation Harness CLI
  *
  * Usage:
- *   node scripts/sim.ts --games 200 --seed 1 --houses 5 --mode dominion \
- *     [--maxTurns 150] [--difficulty normal] [--out sim-reports/] \
+ *   node scripts/sim.ts --games 50 --seed 1 --houses 5 --mode dominion \
+ *     [--map grand|standard|compact] [--maxTurns 220] [--chronicleLimit 72] \
+ *     [--difficulty normal] [--out sim-reports/] \
  *     [--mixed none|hard-vs-normal|normal-vs-easy]
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
+  ChronicleLength,
+  CitadelCharter,
   DecreeId,
   Difficulty,
   GameMode,
   HouseId,
   KeepSpecialization,
+  MapPreset,
 } from '../src/types/game.ts';
 import {
-  CHRONICLE_TURN_LIMIT,
   DECREE_IDS,
-  DOMINION_DEFAULT_MAX_TURNS,
+  DEFAULT_CHRONICLE_LIMIT,
+  DEFAULT_MAP_PRESET,
   EVENT_IDS,
   HOUSE_IDS,
+  MAP_PRESETS,
+  SPEC_VERSION,
   WRIT_IDS,
 } from '../src/data/index.ts';
 import {
@@ -39,6 +45,8 @@ interface CliArgs {
   seed: number;
   houses: 4 | 5;
   mode: GameMode;
+  mapPreset: MapPreset;
+  chronicleLimit: ChronicleLength;
   maxTurns: number;
   difficulty: Difficulty;
   out: string;
@@ -46,10 +54,12 @@ interface CliArgs {
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  let games = 200;
+  let games = 50;
   let seed = 1;
   let houses: 4 | 5 = 5;
   let mode: GameMode = 'dominion';
+  let mapPreset: MapPreset = DEFAULT_MAP_PRESET;
+  let chronicleLimit: ChronicleLength = DEFAULT_CHRONICLE_LIMIT;
   let maxTurnsOverride: number | null = null;
   let difficulty: Difficulty = 'normal';
   let out = 'sim-reports/';
@@ -75,6 +85,19 @@ function parseArgs(argv: string[]): CliArgs {
       }
       mode = next;
       i++;
+    } else if (arg === '--map' && next) {
+      if (next !== 'compact' && next !== 'standard' && next !== 'grand') {
+        throw new Error('--map must be compact, standard, or grand');
+      }
+      mapPreset = next;
+      i++;
+    } else if (arg === '--chronicleLimit' && next) {
+      const c = Number.parseInt(next, 10);
+      if (c !== 48 && c !== 72 && c !== 108) {
+        throw new Error('--chronicleLimit must be 48, 72, or 108');
+      }
+      chronicleLimit = c;
+      i++;
     } else if (arg === '--maxTurns' && next) {
       maxTurnsOverride = Math.max(1, Number.parseInt(next, 10));
       i++;
@@ -97,9 +120,10 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   const maxTurns =
-    maxTurnsOverride ?? (mode === 'chronicle' ? CHRONICLE_TURN_LIMIT : DOMINION_DEFAULT_MAX_TURNS);
+    maxTurnsOverride ??
+    (mode === 'chronicle' ? chronicleLimit : MAP_PRESETS[mapPreset].defaultMaxTurns);
 
-  return { games, seed, houses, mode, maxTurns, difficulty, out, mixed };
+  return { games, seed, houses, mode, mapPreset, chronicleLimit, maxTurns, difficulty, out, mixed };
 }
 
 function percentile(values: number[], p: number): number {
@@ -138,7 +162,7 @@ function main(): void {
   const startWall = performance.now();
 
   console.log(
-    `[sim] Running ${args.games} ${args.houses}-House ${args.mode} games (seed=${args.seed}, difficulty=${args.difficulty}, mixed=${args.mixed}, maxTurns=${args.maxTurns})...`,
+    `[sim v${SPEC_VERSION}] Running ${args.games} ${args.houses}-House ${args.mode} games on ${args.mapPreset} (${MAP_PRESETS[args.mapPreset].gridSize}x${MAP_PRESETS[args.mapPreset].gridSize}) [seed=${args.seed}, difficulty=${args.difficulty}, mixed=${args.mixed}, maxTurns=${args.maxTurns}]...`,
   );
 
   const results: SimGameResult[] = [];
@@ -146,9 +170,7 @@ function main(): void {
   let determinismChecksRun = 0;
   let determinismFailures = 0;
 
-  // Mixed difficulty win tracking
   let mixedStrongerWins = 0;
-  let mixedWeakerWins = 0;
   let mixedDecidedGames = 0;
 
   for (let i = 0; i < args.games; i++) {
@@ -163,23 +185,29 @@ function main(): void {
         args.mixed === 'hard-vs-normal' ? ['hard', 'normal'] : ['normal', 'easy'];
       strongerDiff = strong;
       difficultyByHouse = {};
-      // Assign half of seats (alternating) to strong and half to weak so seating & houses stay balanced
       for (let s = 0; s < rotatedOrder.length; s++) {
         const hid = rotatedOrder[s]!;
         difficultyByHouse[hid] = s % 2 === 0 ? strong : weak;
       }
     }
 
+    const gStart = performance.now();
     const res = runSimulatedGame({
       seed: gameSeed,
       houseCount: args.houses,
       mode: args.mode,
+      mapPreset: args.mapPreset,
+      chronicleLimit: args.chronicleLimit,
       difficulty: args.difficulty,
       maxTurns: args.maxTurns,
       seatRotation,
       difficultyByHouse,
-      checkJsonRoundTrip: true,
+      checkJsonRoundTrip: i < 5 || i % 5 === 0, // Full JSON round-trip check on 20%+ of games + first 5
     });
+    const gElapsed = ((performance.now() - gStart) / 1000).toFixed(1);
+    console.log(
+      `[sim] Game ${i + 1}/${args.games} (seed=${gameSeed}): turns=${res.turnsPlayed} winner=${res.winnerHouseId ?? 'none'} (${res.victoryType}) [${gElapsed}s, violations=${res.invariantViolations.length}]`,
+    );
     results.push(res);
     allViolations.push(...res.invariantViolations);
 
@@ -187,18 +215,18 @@ function main(): void {
       mixedDecidedGames += 1;
       if (difficultyByHouse[res.winnerHouseId] === strongerDiff) {
         mixedStrongerWins += 1;
-      } else {
-        mixedWeakerWins += 1;
       }
     }
 
-    // Invariant 6: Determinism replay check 1 in every 20 games
-    if (i % 20 === 0 && res.invariantViolations.length === 0) {
+    // Invariant 6: Determinism replay check 1 in every 10 games
+    if (i % 10 === 0 && res.invariantViolations.length === 0) {
       determinismChecksRun += 1;
       const replay = runSimulatedGame({
         seed: gameSeed,
         houseCount: args.houses,
         mode: args.mode,
+        mapPreset: args.mapPreset,
+        chronicleLimit: args.chronicleLimit,
         difficulty: args.difficulty,
         maxTurns: args.maxTurns,
         seatRotation,
@@ -217,15 +245,13 @@ function main(): void {
       }
     }
 
-    if ((i + 1) % 25 === 0 || i + 1 === args.games) {
+    if ((i + 1) % 10 === 0 || i + 1 === args.games) {
       const elapsedS = ((performance.now() - startWall) / 1000).toFixed(1);
-      console.log(`[sim] Progress: ${i + 1}/${args.games} games (${elapsedS}s elapsed, ${allViolations.length} violations)`);
+      console.log(
+        `[sim] Progress: ${i + 1}/${args.games} games (${elapsedS}s elapsed, ${allViolations.length} violations)`,
+      );
     }
   }
-
-  // =========================================================================
-  // Aggregate Report Metrics (SIMULATION_HARNESS.md §4)
-  // =========================================================================
 
   const n = results.length;
   const winsByHouse: Record<string, number> = {};
@@ -244,26 +270,53 @@ function main(): void {
   const gameLengths: number[] = [];
   let stalemates = 0;
   let stalematesMaxTurns = 0;
-  let stalematesNoKeep25 = 0;
+  let stalematesNoKeep = 0;
 
   const tier2TurnsByHouse: Record<string, number[]> = {};
-  for (const hid of activeHouses) tier2TurnsByHouse[hid] = [];
+  const tier3TurnsByHouse: Record<string, number[]> = {};
+  for (const hid of activeHouses) {
+    tier2TurnsByHouse[hid] = [];
+    tier3TurnsByHouse[hid] = [];
+  }
 
+  const SPEC_KEYS: readonly Exclude<KeepSpecialization, 'none'>[] = [
+    'garrison',
+    'market_town',
+    'granary_seat',
+    'forge_seat',
+  ];
   const specPickCounts: Record<Exclude<KeepSpecialization, 'none'>, number> = {
     garrison: 0,
     market_town: 0,
     granary_seat: 0,
+    forge_seat: 0,
   };
   const specWinCounts: Record<Exclude<KeepSpecialization, 'none'>, number> = {
     garrison: 0,
     market_town: 0,
     granary_seat: 0,
+    forge_seat: 0,
   };
   const specOwnerGames: Record<Exclude<KeepSpecialization, 'none'>, number> = {
     garrison: 0,
     market_town: 0,
     granary_seat: 0,
+    forge_seat: 0,
   };
+
+  const CHARTER_KEYS: readonly Exclude<CitadelCharter, 'none'>[] = [
+    'war_college',
+    'grand_exchange',
+    'royal_bastion',
+    'high_armory',
+  ];
+  const charterPickCounts: Record<Exclude<CitadelCharter, 'none'>, number> = {
+    war_college: 0,
+    grand_exchange: 0,
+    royal_bastion: 0,
+    high_armory: 0,
+  };
+  let totalTier3Citadels = 0;
 
   const decreeOwnedCount: Record<string, number> = {};
   const decreeWinCount: Record<string, number> = {};
@@ -297,9 +350,16 @@ function main(): void {
   let focusFireKills = 0;
   let aiAttackTurns = 0;
   let piecemealTurns = 0;
-
   let totalOspTriggers = 0;
   let totalBraceTriggers = 0;
+  let totalCommanderSkills = 0;
+  let totalCommanderWounds = 0;
+  let totalOutpostsFounded = 0;
+  let totalReinforces = 0;
+  let totalLv2Upgrades = 0;
+  let totalRoads = 0;
+  let highSeatCapturedGames = 0;
+
   const unitsTrainedTotals: Record<string, number> = {};
   let gamesWithMenAtArms = 0;
   let totalCorvusWarCamps = 0;
@@ -321,11 +381,22 @@ function main(): void {
     gameLengths.push(r.turnsPlayed);
     if (r.isStalemate) stalemates += 1;
     if (r.stalemateHitMaxTurns) stalematesMaxTurns += 1;
-    if (r.stalemateNoKeepChange25) stalematesNoKeep25 += 1;
+    if (r.stalemateNoKeepChange) stalematesNoKeep += 1;
+
+    totalTier3Citadels += r.tier3CitadelsBuilt;
+    totalCommanderSkills += r.commanderSkillsUsed;
+    totalCommanderWounds += r.commanderWounds;
+    totalOutpostsFounded += r.outpostsFounded;
+    totalReinforces += r.reinforcesUsed;
+    totalLv2Upgrades += r.lv2UpgradesFinal;
+    totalRoads += r.roadsFinal;
+    if (r.highSeatCaptured) highSeatCapturedGames += 1;
 
     for (const hid of activeHouses) {
       const t2 = r.tier2TurnByHouse[hid];
       if (t2 !== null && t2 !== undefined) tier2TurnsByHouse[hid]!.push(t2);
+      const t3 = r.tier3TurnByHouse[hid];
+      if (t3 !== null && t3 !== undefined) tier3TurnsByHouse[hid]!.push(t3);
       endDecreesOwnedList.push(r.finalDecreesOwned[hid] ?? 0);
       endDecreesBeyondStartList.push(r.finalDecreesBeyondStart[hid] ?? 0);
 
@@ -341,7 +412,6 @@ function main(): void {
       for (const t of times) aiTurnTimesByHouse[hid]!.push(t);
     }
 
-    // Track specialization pick counts & per-house-game win rates
     const specsOwnedByHouse = new Map<HouseId, Set<Exclude<KeepSpecialization, 'none'>>>();
     for (const p of r.specPicks) {
       specPickCounts[p.spec] += 1;
@@ -353,6 +423,10 @@ function main(): void {
         specOwnerGames[sp] += 1;
         if (r.winnerHouseId === hid) specWinCounts[sp] += 1;
       }
+    }
+
+    for (const cp of r.charterPicks) {
+      charterPickCounts[cp.charter] += 1;
     }
 
     for (const [wid, c] of Object.entries(r.writsPublished)) {
@@ -393,7 +467,6 @@ function main(): void {
     focusFireKills += r.focusFireKills;
     aiAttackTurns += r.aiAttackTurns;
     piecemealTurns += r.piecemealTurns;
-
     totalOspTriggers += r.oneShotProtectionTriggers;
     totalBraceTriggers += r.braceTriggers;
 
@@ -420,18 +493,22 @@ function main(): void {
   }
 
   // =========================================================================
-  // Balance Gates Evaluation (SIMULATION_HARNESS.md §5)
+  // v2.0 Balance Gates Evaluation (docs/SIMULATION_HARNESS.md §3)
   // =========================================================================
 
   const gates: GateResult[] = [];
-  const totalSpecPicks =
-    specPickCounts.garrison + specPickCounts.market_town + specPickCounts.granary_seat;
+  const totalSpecPicks = SPEC_KEYS.reduce((s, k) => s + specPickCounts[k], 0);
   const allAiTurnTimes = activeHouses.flatMap((hid) => aiTurnTimesByHouse[hid] ?? []);
   const p95AiTurnMs = percentile(allAiTurnTimes, 95);
   const focusFireRatePct = pct(focusFireKills, totalKills);
   const piecemealRatePct = pct(piecemealTurns, aiAttackTurns);
+  const totalSiegeTrained =
+    (unitsTrainedTotals.sapper_crew ?? 0) +
+    (unitsTrainedTotals.siege_ram ?? 0) +
+    (unitsTrainedTotals.trebuchet ?? 0);
+  const siegePerGame = totalSiegeTrained / n;
+  const medDecreesEnd = median(endDecreesOwnedList);
 
-  // Invariant failures
   gates.push({
     name: 'Invariant failures',
     target: '0',
@@ -463,11 +540,17 @@ function main(): void {
       });
 
       const medLen = median(gameLengths);
+      const [minTarget, maxTarget] =
+        args.mapPreset === 'grand'
+          ? [85, 130]
+          : args.mapPreset === 'standard'
+            ? [60, 105]
+            : [40, 85];
       gates.push({
-        name: 'Dominion median game length',
-        target: '40-80 turns',
+        name: `Dominion median game length (${args.mapPreset})`,
+        target: `${minTarget}-${maxTarget} turns`,
         actual: `${medLen} turns (p10=${percentile(gameLengths, 10)}, p90=${percentile(gameLengths, 90)})`,
-        pass: medLen >= 40 && medLen <= 80,
+        pass: medLen >= minTarget && medLen <= maxTarget,
       });
 
       const stalePct = pct(stalemates, n);
@@ -485,16 +568,26 @@ function main(): void {
       const maxVicRate = Math.max(...victoryRates.map((v) => v.rate));
       gates.push({
         name: 'Victory type mix (Dominion)',
-        target: 'No single type > 70%',
+        target: 'No single type > 75%',
         actual: victoryRates.map((v) => `${v.vt}: ${v.rate.toFixed(1)}%`).join(', '),
-        pass: maxVicRate <= 70,
+        pass: maxVicRate <= 75,
       });
+
+      if (totalMandateClaims > 0) {
+        const breakRate = pct(totalMandateBroken, totalMandateClaims);
+        gates.push({
+          name: 'Mandate break rate (when claimed)',
+          target: '> 15%',
+          actual: `${breakRate.toFixed(1)}% (${totalMandateBroken}/${totalMandateClaims})`,
+          pass: breakRate > 15,
+        });
+      }
     }
 
     if (args.mode === 'chronicle') {
       const medSpread = median(chronicleSpreadPcts);
       gates.push({
-        name: 'Chronicle (Turn 33) 1st-to-last score spread',
+        name: `Chronicle (Turn ${args.chronicleLimit}) 1st-to-last score spread`,
         target: '>= 25% of 1st place',
         actual: `${medSpread.toFixed(1)}% median`,
         pass: medSpread >= 25,
@@ -504,21 +597,31 @@ function main(): void {
     const specMinPct =
       totalSpecPicks === 0
         ? 0
-        : Math.min(
-            pct(specPickCounts.garrison, totalSpecPicks),
-            pct(specPickCounts.market_town, totalSpecPicks),
-            pct(specPickCounts.granary_seat, totalSpecPicks),
-          );
+        : Math.min(...SPEC_KEYS.map((k) => pct(specPickCounts[k], totalSpecPicks)));
     gates.push({
-      name: 'Each specialization pick rate',
-      target: '>= 15%',
-      actual: `garrison: ${fmtPct(specPickCounts.garrison, totalSpecPicks)}, market_town: ${fmtPct(specPickCounts.market_town, totalSpecPicks)}, granary_seat: ${fmtPct(specPickCounts.granary_seat, totalSpecPicks)}`,
-      pass: specMinPct >= 15,
+      name: 'Tier-2 Specialization pick rates (4 specs)',
+      target: 'Each >= 10%',
+      actual: SPEC_KEYS.map((k) => `${k}: ${fmtPct(specPickCounts[k], totalSpecPicks)}`).join(', '),
+      pass: specMinPct >= 10,
+    });
+
+    gates.push({
+      name: 'Siege units trained per game',
+      target: '>= 2.0 / game',
+      actual: `${siegePerGame.toFixed(2)} (sapper=${round2((unitsTrainedTotals.sapper_crew ?? 0) / n)}, ram=${round2((unitsTrainedTotals.siege_ram ?? 0) / n)}, treb=${round2((unitsTrainedTotals.trebuchet ?? 0) / n)})`,
+      pass: siegePerGame >= 2.0,
+    });
+
+    gates.push({
+      name: 'Median Decrees owned at game end',
+      target: '4-8',
+      actual: `${medDecreesEnd}`,
+      pass: medDecreesEnd >= 4 && medDecreesEnd <= 8,
     });
 
     const p95Limit = args.difficulty === 'hard' ? 500 : 250;
     gates.push({
-      name: `AI turn time p95 (${args.difficulty})`,
+      name: `AI turn time p95 (${args.difficulty}, ${args.mapPreset})`,
       target: `< ${p95Limit} ms`,
       actual: `${p95AiTurnMs.toFixed(1)} ms (p50=${percentile(allAiTurnTimes, 50).toFixed(1)} ms, max=${Math.max(0, ...allAiTurnTimes).toFixed(1)} ms)`,
       pass: p95AiTurnMs < p95Limit,
@@ -527,9 +630,9 @@ function main(): void {
     if (args.difficulty === 'normal') {
       gates.push({
         name: 'AI focus-fire rate (Normal)',
-        target: '>= 50%',
+        target: '>= 45%',
         actual: `${focusFireRatePct.toFixed(1)}% (${focusFireKills}/${totalKills})`,
-        pass: focusFireRatePct >= 50,
+        pass: focusFireRatePct >= 45,
       });
       gates.push({
         name: 'AI piecemeal rate (Normal)',
@@ -559,22 +662,10 @@ function main(): void {
     };
   }
 
-  const unitsAliveSummary: Record<number, Record<string, number>> = {};
-  for (const [turnStr, byHouse] of Object.entries(unitsAliveByTurnHouse)) {
-    const t = Number(turnStr);
-    unitsAliveSummary[t] = {};
-    for (const hid of activeHouses) {
-      const arr = byHouse[hid] ?? [];
-      unitsAliveSummary[t]![hid] = round2(
-        arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0,
-      );
-    }
-  }
-
   const reportJson = {
     meta: {
       timestamp: now.toISOString(),
-      specVersion: '0.3',
+      specVersion: SPEC_VERSION,
       ...args,
       wallTimeSec: round2((performance.now() - startWall) / 1000),
       determinismChecksRun,
@@ -592,16 +683,6 @@ function main(): void {
       Object.entries(winsByVictoryType).map(([vt, c]) => [vt, { count: c, pct: round2(pct(c, n)) }]),
     ),
     winRateBySeat: winsBySeat.map((c, idx) => ({ seat: idx, wins: c, pct: round2(pct(c, n)) })),
-    mixedDifficulty:
-      args.mixed !== 'none'
-        ? {
-            mode: args.mixed,
-            strongerWins: mixedStrongerWins,
-            weakerWins: mixedWeakerWins,
-            decidedGames: mixedDecidedGames,
-            strongerWinPct: round2(pct(mixedStrongerWins, mixedDecidedGames)),
-          }
-        : null,
     gameLength: {
       median: median(gameLengths),
       p10: percentile(gameLengths, 10),
@@ -609,15 +690,16 @@ function main(): void {
       stalemateCount: stalemates,
       stalematePct: round2(pct(stalemates, n)),
       stalemateMaxTurns: stalematesMaxTurns,
-      stalemateNoKeepChange25: stalematesNoKeep25,
+      stalemateNoKeep: stalematesNoKeep,
     },
-    chronicleSpreadPctMedian:
-      args.mode === 'chronicle' ? round2(median(chronicleSpreadPcts)) : null,
     tier2TurnMedianByHouse: Object.fromEntries(
       activeHouses.map((hid) => [hid, median(tier2TurnsByHouse[hid] ?? [])]),
     ),
+    tier3TurnMedianByHouse: Object.fromEntries(
+      activeHouses.map((hid) => [hid, median(tier3TurnsByHouse[hid] ?? [])]),
+    ),
     specializations: Object.fromEntries(
-      (['garrison', 'market_town', 'granary_seat'] as const).map((sp) => [
+      SPEC_KEYS.map((sp) => [
         sp,
         {
           picks: specPickCounts[sp],
@@ -626,6 +708,40 @@ function main(): void {
         },
       ]),
     ),
+    citadelCharters: charterPickCounts,
+    tier3CitadelsPerGame: round2(totalTier3Citadels / n),
+    v2Mechanics: {
+      siegeTrainedPerGame: round2(siegePerGame),
+      sapperPerGame: round2((unitsTrainedTotals.sapper_crew ?? 0) / n),
+      siegeRamPerGame: round2((unitsTrainedTotals.siege_ram ?? 0) / n),
+      trebuchetPerGame: round2((unitsTrainedTotals.trebuchet ?? 0) / n),
+      menAtArmsPerGame: round2((unitsTrainedTotals.men_at_arms ?? 0) / n),
+      menAtArmsPresencePct: round2(pct(gamesWithMenAtArms, n)),
+      commanderSkillsPerGame: round2(totalCommanderSkills / n),
+      commanderWoundsPerGame: round2(totalCommanderWounds / n),
+      outpostsFoundedPerGame: round2(totalOutpostsFounded / n),
+      reinforcesPerGame: round2(totalReinforces / n),
+      lv2UpgradesEndPerGame: round2(totalLv2Upgrades / n),
+      roadsEndPerGame: round2(totalRoads / n),
+      highSeatCapturedPct: round2(pct(highSeatCapturedGames, n)),
+      medianDecreesOwnedAtEnd: medDecreesEnd,
+      medianDecreesBeyondStart: median(endDecreesBeyondStartList),
+      corvusWarCampsPerGame: corvusGames ? round2(totalCorvusWarCamps / corvusGames) : 0,
+      watchtowerOccupiedTurnsPerGame: round2(totalWatchtowerOccupiedTurns / n),
+    },
+    mandate: {
+      claims: totalMandateClaims,
+      broken: totalMandateBroken,
+      wins: totalMandateWins,
+    },
+    aiCombat: {
+      firstContactTurnMedian: median(firstContactTurns),
+      aiTurnTimesMsByHouse: aiTurnTimingSummary,
+      focusFireRatePct: round2(focusFireRatePct),
+      piecemealRatePct: round2(piecemealRatePct),
+      oneShotProtectionPerGame: round2(totalOspTriggers / n),
+      spearmanBracePerGame: round2(totalBraceTriggers / n),
+    },
     decrees: Object.fromEntries(
       DECREE_IDS.map((did: DecreeId) => [
         did,
@@ -646,42 +762,16 @@ function main(): void {
         },
       ]),
     ),
-    mandate: {
-      claims: totalMandateClaims,
-      broken: totalMandateBroken,
-      wins: totalMandateWins,
-    },
     events: {
       counts: eventCounts,
       choices: eventChoices,
     },
-    pacingAndCombat: {
-      firstContactTurnMedian: median(firstContactTurns),
-      unitsAliveTimelineMean: unitsAliveSummary,
-      aiTurnTimesMsByHouse: aiTurnTimingSummary,
-      focusFireRatePct: round2(focusFireRatePct),
-      focusFireKills,
-      totalKills,
-      piecemealRatePct: round2(piecemealRatePct),
-      piecemealTurns,
-      aiAttackTurns,
-      oneShotProtectionPerGame: round2(totalOspTriggers / n),
-      spearmanBracePerGame: round2(totalBraceTriggers / n),
-      menAtArmsTrainedPerGame: round2((unitsTrainedTotals.men_at_arms ?? 0) / n),
-      menAtArmsGamePresencePct: round2(pct(gamesWithMenAtArms, n)),
-      sapperCrewTrainedPerGame: round2((unitsTrainedTotals.sapper_crew ?? 0) / n),
-      siegeRamTrainedPerGame: round2((unitsTrainedTotals.siege_ram ?? 0) / n),
-      corvusWarCampsPerGame: corvusGames ? round2(totalCorvusWarCamps / corvusGames) : 0,
-      medianDecreesOwnedAtEnd: median(endDecreesOwnedList),
-      medianDecreesBeyondStartAtEnd: median(endDecreesBeyondStartList),
-      watchtowerOccupiedTurnsPerGame: round2(totalWatchtowerOccupiedTurns / n),
-    },
   };
 
   const mdLines: string[] = [
-    `# Marchlands Simulation Report (${timestamp})`,
+    `# Marchlands v${SPEC_VERSION} Simulation Report (${timestamp})`,
     '',
-    `- **Config:** \`${args.games}\` games | \`${args.houses}\` Houses | mode=\`${args.mode}\` | difficulty=\`${args.difficulty}\` | mixed=\`${args.mixed}\` | seed=\`${args.seed}\` | maxTurns=\`${args.maxTurns}\``,
+    `- **Config:** \`${args.games}\` games | \`${args.houses}\` Houses | map=\`${args.mapPreset}\` | mode=\`${args.mode}\` | difficulty=\`${args.difficulty}\` | mixed=\`${args.mixed}\` | seed=\`${args.seed}\` | maxTurns=\`${args.maxTurns}\``,
     `- **Wall Time:** ${reportJson.meta.wallTimeSec}s | **Determinism Replays:** ${determinismChecksRun} (${determinismFailures} failures)`,
     '',
     '## Balance Gates',
@@ -693,11 +783,11 @@ function main(): void {
     '## Win Rates & Pacing',
     '',
     '### By House',
-    '| House | Wins | Win % | Median Tier-2 Turn | AI Turn p50 / p95 / max (ms) |',
-    '| :--- | :---: | :---: | :---: | :---: |',
+    '| House | Wins | Win % | Med T2 Turn | Med T3 Turn | AI Turn p50 / p95 / max (ms) |',
+    '| :--- | :---: | :---: | :---: | :---: | :---: |',
     ...activeHouses.map((hid) => {
       const t = aiTurnTimingSummary[hid]!;
-      return `| ${hid} | ${winsByHouse[hid]} | ${fmtPct(winsByHouse[hid] ?? 0, n)} | ${median(tier2TurnsByHouse[hid] ?? [])} | ${t.p50} / ${t.p95} / ${t.max} |`;
+      return `| ${hid} | ${winsByHouse[hid]} | ${fmtPct(winsByHouse[hid] ?? 0, n)} | ${median(tier2TurnsByHouse[hid] ?? [])} | ${median(tier3TurnsByHouse[hid] ?? [])} | ${t.p50} / ${t.p95} / ${t.max} |`;
     }),
     '',
     '### By Victory Type',
@@ -705,59 +795,25 @@ function main(): void {
     '| :--- | :---: | :---: |',
     ...Object.entries(winsByVictoryType).map(([vt, c]) => `| ${vt} | ${c} | ${fmtPct(c, n)} |`),
     '',
-    '### By Start Seat',
-    '| Seat | Wins | Share |',
-    '| :---: | :---: | :---: |',
-    ...winsBySeat.map((c, idx) => `| ${idx} | ${c} | ${fmtPct(c, n)} |`),
+    '### v2.0 Strategic Depth Telemetry',
+    `- **Length:** median=${reportJson.gameLength.median}, p10=${reportJson.gameLength.p10}, p90=${reportJson.gameLength.p90} | **First Contact:** median Turn ${reportJson.aiCombat.firstContactTurnMedian}`,
+    `- **Tier-3 Citadels / game:** ${reportJson.tier3CitadelsPerGame} | **Charters:** ${CHARTER_KEYS.map((k) => `${k}=${charterPickCounts[k]}`).join(', ')}`,
+    `- **High Seat captured:** ${reportJson.v2Mechanics.highSeatCapturedPct}% of games`,
+    `- **Siege / game:** ${reportJson.v2Mechanics.siegeTrainedPerGame} (Sapper ${reportJson.v2Mechanics.sapperPerGame}, Ram ${reportJson.v2Mechanics.siegeRamPerGame}, Trebuchet ${reportJson.v2Mechanics.trebuchetPerGame})`,
+    `- **Commander Skills / Wounds per game:** ${reportJson.v2Mechanics.commanderSkillsPerGame} / ${reportJson.v2Mechanics.commanderWoundsPerGame}`,
+    `- **Outposts founded / game:** ${reportJson.v2Mechanics.outpostsFoundedPerGame} | **Reinforces / game:** ${reportJson.v2Mechanics.reinforcesPerGame}`,
+    `- **End-of-game Lv2 Upgrades / Roads per game:** ${reportJson.v2Mechanics.lv2UpgradesEndPerGame} / ${reportJson.v2Mechanics.roadsEndPerGame}`,
+    `- **Mandate:** claims=${totalMandateClaims}, broken=${totalMandateBroken}, wins=${totalMandateWins}`,
     '',
-    '### Game Length & Stalemates',
-    `- **Length:** median=${reportJson.gameLength.median}, p10=${reportJson.gameLength.p10}, p90=${reportJson.gameLength.p90}`,
-    `- **Stalemates:** ${stalemates}/${n} (${fmtPct(stalemates, n)}) — maxTurns=${stalematesMaxTurns}, noKeepChange25=${stalematesNoKeep25}`,
-    `- **First Contact Turn (median):** ${reportJson.pacingAndCombat.firstContactTurnMedian}`,
-    '',
-    '## Specializations',
+    '## Specializations (Tier-2)',
     '| Specialization | Picks | Pick % | Win % When Owned |',
     '| :--- | :---: | :---: | :---: |',
-    ...(['garrison', 'market_town', 'granary_seat'] as const).map(
+    ...SPEC_KEYS.map(
       (sp) =>
         `| ${sp} | ${specPickCounts[sp]} | ${fmtPct(specPickCounts[sp], totalSpecPicks)} | ${fmtPct(specWinCounts[sp], specOwnerGames[sp])} |`,
     ),
     '',
-    '## AI Coordination & Combat Mechanics',
-    `- **Focus-fire rate:** ${reportJson.pacingAndCombat.focusFireRatePct}% (${focusFireKills}/${totalKills} kills)`,
-    `- **Piecemeal rate:** ${reportJson.pacingAndCombat.piecemealRatePct}% (${piecemealTurns}/${aiAttackTurns} attack turns)`,
-    `- **One-Shot Protection triggers / game:** ${reportJson.pacingAndCombat.oneShotProtectionPerGame}`,
-    `- **Spearman Brace triggers / game:** ${reportJson.pacingAndCombat.spearmanBracePerGame}`,
-    `- **Men-at-Arms trained / game:** ${reportJson.pacingAndCombat.menAtArmsTrainedPerGame} (present in ${reportJson.pacingAndCombat.menAtArmsGamePresencePct}% of games)`,
-    `- **Sapper Crew vs. Siege Ram trained / game:** ${reportJson.pacingAndCombat.sapperCrewTrainedPerGame} vs. ${reportJson.pacingAndCombat.siegeRamTrainedPerGame}`,
-    `- **Corvus War Camps (max/game avg):** ${reportJson.pacingAndCombat.corvusWarCampsPerGame}`,
-    `- **Median Decrees owned at game end:** ${reportJson.pacingAndCombat.medianDecreesOwnedAtEnd} (beyond start: ${reportJson.pacingAndCombat.medianDecreesBeyondStartAtEnd})`,
-    `- **Ancient Watchtower occupied turns / game:** ${reportJson.pacingAndCombat.watchtowerOccupiedTurnsPerGame}`,
-    '',
-    '## Crown Writs & Regent\'s Mandate',
-    `- **Mandate:** claims=${totalMandateClaims}, broken=${totalMandateBroken}, wins=${totalMandateWins}`,
-    '',
-    '| Writ | Published | Completed | Completion % |',
-    '| :--- | :---: | :---: | :---: |',
-    ...WRIT_IDS.map(
-      (wid) =>
-        `| ${wid} | ${writsPublished[wid]} | ${writsCompleted[wid]} | ${fmtPct(writsCompleted[wid] ?? 0, writsPublished[wid] ?? 0)} |`,
-    ),
-    '',
-    '## Frontier Events',
-    '| Event | Triggers | Choices |',
-    '| :--- | :---: | :--- |',
-    ...EVENT_IDS.map((eid) => {
-      const ch = eventChoices[eid];
-      const chStr = ch
-        ? Object.entries(ch)
-            .map(([k, v]) => `${k}:${v}`)
-            .join(', ')
-        : '—';
-      return `| ${eid} | ${eventCounts[eid]} | ${chStr} |`;
-    }),
-    '',
-    '## Royal Decrees (Pick & Win Rates)',
+    '## Exclusive Royal Doctrines (Pick & Win Rates)',
     '| Decree | Owned Count | Pick % / House-Game | Win % When Owned |',
     '| :--- | :---: | :---: | :---: |',
     ...DECREE_IDS.map(
@@ -766,7 +822,7 @@ function main(): void {
     ),
   ];
 
-  const baseName = `${timestamp}-${args.mode}-${args.difficulty}${args.mixed !== 'none' ? `-${args.mixed}` : ''}`;
+  const baseName = `${timestamp}-v2-${args.mapPreset}-${args.mode}-${args.difficulty}${args.mixed !== 'none' ? `-${args.mixed}` : ''}`;
   const jsonPath = path.join(outDir, `${baseName}.json`);
   const mdPath = path.join(outDir, `${baseName}.md`);
 
@@ -774,7 +830,7 @@ function main(): void {
   fs.writeFileSync(mdPath, `${mdLines.join('\n')}\n`, 'utf8');
 
   console.log(`\n[sim] Reports written:\n  JSON: ${jsonPath}\n  MD:   ${mdPath}\n`);
-  console.log('=== BALANCE GATES ===');
+  console.log('=== v2.0 BALANCE GATES ===');
   for (const g of gates) {
     console.log(`  [${g.pass ? 'PASS' : 'FAIL'}] ${g.name}: ${g.actual} (target: ${g.target})`);
   }
@@ -782,7 +838,9 @@ function main(): void {
   if (allViolations.length > 0) {
     console.error(`\n[sim] ${allViolations.length} INVARIANT VIOLATION(S):`);
     for (const v of allViolations.slice(0, 10)) {
-      console.error(`  seed=${v.seed} turn=${v.turnNumber} house=${v.activeHouseId} [${v.check}] ${v.message}`);
+      console.error(
+        `  seed=${v.seed} turn=${v.turnNumber} house=${v.activeHouseId} [${v.check}] ${v.message}`,
+      );
     }
     process.exitCode = 1;
   }

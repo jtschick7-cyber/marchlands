@@ -1,8 +1,8 @@
-Spec Version: 0.3
+Spec Version: 2.0
 
-# Artifact #4: Marchlands Visual Design Token & Heraldry Sheet
+# Artifact #4: Marchlands v2.0 Visual Design Token & Heraldry Sheet
 
-This document defines the complete color system, typography scale, fog-of-war overlays, and minimalist SVG glyph specifications for *Marchlands*. All tokens are engineered for high-contrast readability on 375x812 mobile viewports, full colorblind accessibility (Protanopia, Deuteranopia, and Tritanopia safe), and zero external image dependencies.
+This document defines the complete color system, typography scale, fog-of-war overlays, map overlays, and minimalist SVG glyph specifications for *Marchlands v2.0*. All tokens are engineered for high-contrast readability on 375x812 mobile viewports across `22x22`, `28x28`, and `34x34` Grand March boards, full colorblind accessibility, and zero external image dependencies.
 
 ---
 
@@ -63,8 +63,17 @@ All grid overlays render as crisp SVG/CSS layers stacked cleanly above terrain a
 * **Primary Modal Card (Royal Decrees & Ruins):** `#FAF7F0` *(Aged Vellum)* surface with `#1C1917` *(Ink Black)* serif headers and `#B45309` *(Wax Seal Bronze)* accents
 * **Resource Pill Tokens:**
   * **Food:** `#16A34A` *(Harvest Green)* — Wheat sheaf icon
-  * **Materials:** `#D97706` *(Timber & Iron Amber)* — Crossed log & ingot icon
+  * **Materials:** `#D97706` *(Timber Amber)* — Stacked timber icon
+  * **Iron:** `#60A5FA` *(Forged Steel Blue)* — Metallic ingot icon
   * **Coin:** `#EAB308` *(Crown Gold)* — Stamped coin icon
+* **Strategic Map Overlay Modes (v2.0):**
+  * **Enemy Threat Overlay (`threat`):** Soft crimson heat wash (`rgba(239, 68, 68, 0.24)`) over tiles within visible enemy attack/Overwatch/Citadel Arrow Slits range.
+  * **Winter Shelter Overlay (`winter`):** Emerald shield wash (`rgba(16, 185, 129, 0.22)`) on tiles sheltered from Winter attrition; frost tint (`rgba(56, 189, 248, 0.20)`) on exposed tiles.
+  * **Adjacency & Infrastructure Overlay (`adjacency`):** Highlights Iron deposits, River-adjacent irrigation bands, Road corridors (`#A8A29E` cobbled center lines), and orthogonal Wall Links (`#78716C` / `#94A3B8` stone connectors).
+* **Tier-3 Grand Citadel & Level-2 Upgrade Badges:**
+  * Tier-3 Grand Citadel renders a triple-towered stone citadel with gold crenellation crest.
+  * Level-2 upgraded improvements display a crisp `II` slate-gold badge (`#FDE68A` on `#1E293B`) in the tile top-left corner.
+  * Lord-Commanders render a gold crown crest above the unit token; Overwatch renders an amber eye pip; Deployed Trebuchets render a braced tripod frame; Fortified/Phalanx units render a steel shield rim.
 
 ### Typography & Mobile Touch Ergonomics
 * **Headings / Decree Titles:** `'Cinzel', 'Georgia', serif` — `600/700` weight, tight tracking (`-0.01em`)

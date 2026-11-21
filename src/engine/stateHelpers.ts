@@ -1,12 +1,17 @@
 /**
- * Marchlands (Spec v0.3) — Pure Engine State Helpers & Initial State Builder
+ * Marchlands (Spec v2.0) — Pure Engine State Helpers & Initial State Builder
  *
  * Strictly headless, deterministic, immutable, JSON-serializable.
+ * Uses WeakMap-backed spatial indexing for O(1) lookups on 34x34 maps.
  */
 
 import type {
+  BattleHonorId,
   ChronicleEvent,
   ChronicleEventType,
+  ChronicleLength,
+  CommanderState,
+  CommanderTraitId,
   CoordKey,
   DecreeId,
   Difficulty,
@@ -17,6 +22,9 @@ import type {
   HouseId,
   HouseState,
   KeepState,
+  MapPreset,
+  MapPresetConfig,
+  OutpostState,
   Season,
   TileState,
   UnitState,
@@ -24,31 +32,48 @@ import type {
 import {
   CHRONICLE_MAX_ENTRIES,
   COIN_MILESTONE_STEP_BASE,
+  COMMANDER_BASE_HP,
   CURRENT_SCHEMA_VERSION,
-  GRID_SIZE,
+  DEFAULT_CHRONICLE_LIMIT,
+  DEFAULT_MAP_PRESET,
   HOUSES,
   INITIAL_COIN_MILESTONE,
-  KEEP_BASE_MAX_HP,
+  KEEP_GARRISON_HP_BONUS,
+  KEEP_STONE_CURTAIN_HP_MULT,
   KEEP_TIER1_ARMY_CAP,
+  KEEP_TIER1_MAX_HP,
   KEEP_TIER1_RADIUS,
   KEEP_TIER2_ARMY_CAP,
+  KEEP_TIER2_MAX_HP,
   KEEP_TIER2_RADIUS,
-  PALISADE_CAP_GARRISON,
-  PALISADE_CAP_TIER1,
-  PALISADE_CAP_TIER2,
+  KEEP_TIER3_ARMY_CAP,
+  KEEP_TIER3_MAX_HP,
+  KEEP_TIER3_RADIUS,
+  MAP_PRESETS,
+  OUTPOST_BASE_CAP,
+  OUTPOST_BORDER_WARDENS_CAP,
   SEASON_ORDER,
   SPEC_VERSION,
   STARTING_COIN,
+  STARTING_IRON,
   STARTING_MATERIALS,
   TURNS_PER_SEASON,
   TURNS_PER_YEAR,
   UNITS,
+  WALL_CAP_GARRISON_BONUS,
+  WALL_CAP_TIER1,
+  WALL_CAP_TIER2,
+  WALL_CAP_TIER3,
   WAR_CAMP_ARMY_CAP_BONUS,
+  WATCHTOWER_CAP_TIER1,
+  WATCHTOWER_CAP_TIER2,
+  WATCHTOWER_CAP_TIER3,
   WRIT_FIRST_TURN,
 } from '../data/index.ts';
-import { coordKey, getTilesInRadius } from './coords.ts';
-import { mapGen } from './mapGen.ts';
+import { chebyshevDist, coordKey, getTilesInRadius } from './coords.ts';
 import { recomputeHouseFog } from './fog.ts';
+import { mapGen } from './mapGen.ts';
+import { getIndexedKeepTiles, getSpatialIndex } from './spatialIndex.ts';
 
 export function getSeason(turnNumber: number): Season {
   const idx = Math.floor((Math.max(1, turnNumber) - 1) / TURNS_PER_SEASON) % SEASON_ORDER.length;
@@ -59,8 +84,24 @@ export function getYear(turnNumber: number): number {
   return Math.floor((Math.max(1, turnNumber) - 1) / TURNS_PER_YEAR) + 1;
 }
 
-export function houseHasDecree(house: HouseState, decreeId: DecreeId): boolean {
-  return house.decreeIds.includes(decreeId);
+export function getMapPresetConfig(state: GameState): MapPresetConfig {
+  return MAP_PRESETS[state.mapPreset];
+}
+
+export function houseHasDecree(house: HouseState | undefined, decreeId: DecreeId): boolean {
+  return house ? house.decreeIds.includes(decreeId) : false;
+}
+
+export function unitHasHonor(unit: UnitState | undefined, honorId: BattleHonorId): boolean {
+  return unit ? unit.battleHonors.includes(honorId) : false;
+}
+
+export function hasCommanderTrait(
+  state: GameState,
+  houseId: HouseId,
+  traitId: CommanderTraitId,
+): boolean {
+  return state.commanders[houseId]?.traits.includes(traitId) ?? false;
 }
 
 export function houseHasActiveEffect(
@@ -77,49 +118,99 @@ export function houseHasActiveEffect(
 }
 
 export function getUnitAt(state: GameState, tileKey: CoordKey): UnitState | null {
-  for (const unit of Object.values(state.units)) {
-    if (unit.tileKey === tileKey) return unit;
-  }
-  return null;
+  return getSpatialIndex(state).unitByTileKey[tileKey] ?? null;
 }
 
 export function getKeepAt(state: GameState, tileKey: CoordKey): KeepState | null {
-  for (const keep of Object.values(state.keeps)) {
-    if (keep.tileKey === tileKey) return keep;
-  }
-  return null;
+  return getSpatialIndex(state).keepByTileKey[tileKey] ?? null;
+}
+
+export function getOutpostAt(state: GameState, tileKey: CoordKey): OutpostState | null {
+  return getSpatialIndex(state).outpostByTileKey[tileKey] ?? null;
 }
 
 export function getHouseKeeps(state: GameState, houseId: HouseId): KeepState[] {
-  return Object.values(state.keeps).filter((k) => k.ownerHouseId === houseId);
+  return [...(getSpatialIndex(state).keepsByOwner[houseId] ?? [])];
+}
+
+export function getHouseOutposts(state: GameState, houseId: HouseId): OutpostState[] {
+  return [...(getSpatialIndex(state).outpostsByOwner[houseId] ?? [])];
 }
 
 export function getHouseUnits(state: GameState, houseId: HouseId): UnitState[] {
-  return Object.values(state.units).filter((u) => u.houseId === houseId);
+  return [...(getSpatialIndex(state).unitsByOwner[houseId] ?? [])];
+}
+
+export function getCommanderUnit(state: GameState, houseId: HouseId): UnitState | null {
+  const cmd = state.commanders[houseId];
+  if (!cmd || !cmd.unitId) return null;
+  return state.units[cmd.unitId] ?? null;
+}
+
+export function isAdjacentToFriendlyCommander(state: GameState, unit: UnitState): boolean {
+  if (unit.isCommander) return false;
+  const cmdUnit = getCommanderUnit(state, unit.houseId);
+  if (!cmdUnit) return false;
+  return chebyshevDist(unit.x, unit.y, cmdUnit.x, cmdUnit.y) <= 1;
 }
 
 export function getKeepRadius(keep: KeepState): number {
-  return keep.tier === 2 ? KEEP_TIER2_RADIUS : KEEP_TIER1_RADIUS;
+  if (keep.tier === 3) return KEEP_TIER3_RADIUS;
+  if (keep.tier === 2) return KEEP_TIER2_RADIUS;
+  return KEEP_TIER1_RADIUS;
 }
 
-export function getKeepPalisadeCap(keep: KeepState): number {
-  if (keep.tier === 1) return PALISADE_CAP_TIER1;
-  return keep.specialization === 'garrison' ? PALISADE_CAP_GARRISON : PALISADE_CAP_TIER2;
+export function getKeepWallCap(keep: KeepState): number {
+  const base =
+    keep.tier === 3 ? WALL_CAP_TIER3 : keep.tier === 2 ? WALL_CAP_TIER2 : WALL_CAP_TIER1;
+  return base + (keep.specialization === 'garrison' ? WALL_CAP_GARRISON_BONUS : 0);
+}
+
+// Alias for compatibility with existing callers
+export const getKeepPalisadeCap = getKeepWallCap;
+
+export function getKeepWatchtowerCap(keep: KeepState): number {
+  if (keep.tier === 3) return WATCHTOWER_CAP_TIER3;
+  if (keep.tier === 2) return WATCHTOWER_CAP_TIER2;
+  return WATCHTOWER_CAP_TIER1;
+}
+
+export function computeKeepMaxHp(keep: KeepState, house: HouseState | undefined): number {
+  let base =
+    keep.tier === 3 ? KEEP_TIER3_MAX_HP : keep.tier === 2 ? KEEP_TIER2_MAX_HP : KEEP_TIER1_MAX_HP;
+  if (keep.specialization === 'garrison') {
+    base += KEEP_GARRISON_HP_BONUS;
+  }
+  if (houseHasDecree(house, 'decree_stone_curtain')) {
+    base = Math.round(base * KEEP_STONE_CURTAIN_HP_MULT);
+  }
+  return base;
+}
+
+export function getHouseOutpostCap(house: HouseState | undefined): number {
+  return houseHasDecree(house, 'decree_border_wardens')
+    ? OUTPOST_BORDER_WARDENS_CAP
+    : OUTPOST_BASE_CAP;
 }
 
 export function getKeepArmyCap(state: GameState, keepId: string): number {
   const keep = state.keeps[keepId];
   if (!keep) return 0;
-  let cap = keep.tier === 2 ? KEEP_TIER2_ARMY_CAP : KEEP_TIER1_ARMY_CAP;
+  const house = state.houses[keep.ownerHouseId];
+  let cap =
+    keep.tier === 3
+      ? KEEP_TIER3_ARMY_CAP
+      : keep.tier === 2
+        ? KEEP_TIER2_ARMY_CAP
+        : KEEP_TIER1_ARMY_CAP;
   if (keep.specialization === 'garrison') {
     cap += 1;
   }
-  // Check for Corvus war_camp inside this Keep's territory
-  const hasWarCamp = Object.values(state.tiles).some(
-    (t) =>
-      t.keepId === keepId &&
-      t.ownerHouseId === keep.ownerHouseId &&
-      t.improvement === 'war_camp',
+  if (keep.tier >= 2 && houseHasDecree(house, 'decree_feudal_levies')) {
+    cap += 1;
+  }
+  const hasWarCamp = getIndexedKeepTiles(state, keepId).some(
+    (t) => t.ownerHouseId === keep.ownerHouseId && t.improvement === 'war_camp',
   );
   if (hasWarCamp) {
     cap += WAR_CAMP_ARMY_CAP_BONUS;
@@ -128,9 +219,10 @@ export function getKeepArmyCap(state: GameState, keepId: string): number {
 }
 
 export function getKeepSupportedUnitIds(state: GameState, keepId: string): string[] {
+  const list = getSpatialIndex(state).unitsByHomeKeepId[keepId] ?? [];
   const out: string[] = [];
-  for (const unit of Object.values(state.units)) {
-    if (unit.homeKeepId === keepId && UNITS[unit.typeId].countsTowardArmyCap) {
+  for (const unit of list) {
+    if (UNITS[unit.typeId].countsTowardArmyCap) {
       out.push(unit.id);
     }
   }
@@ -139,7 +231,7 @@ export function getKeepSupportedUnitIds(state: GameState, keepId: string): strin
 
 /**
  * Adds gross Coin to a House, tracking lifetimeCoinEarned and escalating
- * Coin Draft Milestones (25 -> 65 -> 125 -> 205 -> 305...).
+ * Doctrine Pair Draft Milestones (60 -> 150 -> 285 -> 465 -> 690...).
  */
 export function addLifetimeCoin(house: HouseState, amount: number): HouseState {
   if (amount <= 0) return house;
@@ -187,9 +279,6 @@ export function addFavor(house: HouseState, delta: number): HouseState {
   };
 }
 
-/**
- * Appends a ChronicleEvent to the bounded 300-entry ring buffer.
- */
 export function appendChronicle(
   state: GameState,
   event: {
@@ -219,9 +308,6 @@ export function appendChronicle(
   };
 }
 
-/**
- * Allocates the next settlement name from a House's 10-name pool (falling back to numbered suffix).
- */
 export function allocateSettlementName(house: HouseState): {
   name: string;
   updatedHouse: HouseState;
@@ -244,15 +330,18 @@ export interface NewGameOptions {
   readonly mode: GameMode;
   readonly difficulty: Difficulty;
   readonly humanHouseId: HouseId | null;
+  readonly mapPreset?: MapPreset;
+  readonly chronicleLimit?: ChronicleLength;
   readonly customHouseOrder?: readonly HouseId[];
 }
 
-/**
- * Creates a complete, valid, deterministic Turn-1 GameState from mapGen(seed, houseCount).
- */
 export function createInitialGameState(options: NewGameOptions): GameState {
-  const gen = mapGen(options.seed, options.houseCount, options.customHouseOrder);
+  const mapPreset = options.mapPreset ?? DEFAULT_MAP_PRESET;
+  const chronicleLimit = options.chronicleLimit ?? DEFAULT_CHRONICLE_LIMIT;
+  const gen = mapGen(options.seed, options.houseCount, options.customHouseOrder, mapPreset);
+  const gridSize = gen.gridSize;
   const houseOrder = [...gen.houseOrder];
+
   const tiles: Record<CoordKey, TileState> = {};
   for (const [k, t] of Object.entries(gen.tiles)) {
     tiles[k] = { ...t, revealedByHouseIds: [...t.revealedByHouseIds] };
@@ -260,8 +349,11 @@ export function createInitialGameState(options: NewGameOptions): GameState {
 
   const houses: Record<string, HouseState> = {};
   const keeps: Record<string, KeepState> = {};
+  const units: Record<string, UnitState> = {};
+  const commanders: Record<string, CommanderState> = {};
   const fog: Record<string, Record<CoordKey, FogStatus>> = {};
   let nextKeepSeq = 1;
+  let nextUnitSeq = 1;
 
   for (const houseId of houseOrder) {
     const def = HOUSES[houseId];
@@ -279,23 +371,68 @@ export function createInitialGameState(options: NewGameOptions): GameState {
       y: capCoord.y,
       tier: 1,
       isCapital: true,
+      isHighSeat: false,
       specialization: 'none',
-      keepHp: KEEP_BASE_MAX_HP,
-      maxKeepHp: KEEP_BASE_MAX_HP,
+      citadelCharter: 'none',
+      keepHp: KEEP_TIER1_MAX_HP,
+      maxKeepHp: KEEP_TIER1_MAX_HP,
       damagedLastRound: false,
+      garrisonVolleyUsedThisTurn: false,
       foodProgress: 0,
       repeatMilestonesClaimed: 0,
     };
 
     // Sticky 3x3 territory claim around Capital
-    for (const c of getTilesInRadius(capCoord.x, capCoord.y, KEEP_TIER1_RADIUS)) {
+    for (const c of getTilesInRadius(capCoord.x, capCoord.y, KEEP_TIER1_RADIUS, gridSize)) {
       const tk = coordKey(c.x, c.y);
       const tile = tiles[tk]!;
-      if (tile.keepId === null) {
+      if (tile.keepId === null && tile.outpostId === null) {
         tile.keepId = keepId;
         tile.ownerHouseId = houseId;
       }
     }
+
+    // Spawn starting Lord-Commander at Capital (ready on Turn 1)
+    const cmdUnitId = `unit_${nextUnitSeq}`;
+    nextUnitSeq += 1;
+    units[cmdUnitId] = {
+      id: cmdUnitId,
+      houseId,
+      typeId: 'lord_commander',
+      homeKeepId: 'commander',
+      tileKey: capKey,
+      x: capCoord.x,
+      y: capCoord.y,
+      hp: COMMANDER_BASE_HP,
+      maxHp: COMMANDER_BASE_HP,
+      remainingMovement: def.commanderMovement,
+      hasMoved: false,
+      hasAttacked: false,
+      spawnedOnTurn: 0,
+      isMutinied: false,
+      damagedSinceLastTurn: false,
+      xp: 0,
+      isFortified: false,
+      isOverwatch: false,
+      isDeployed: false,
+      isCommander: true,
+      movedOpenTilesThisTurn: 0,
+      battleHonors: [],
+      overwatchRangeBonusUntilTurn: 0,
+      commanderBuffUntilTurn: 0,
+    };
+
+    commanders[houseId] = {
+      houseId,
+      unitId: cmdUnitId,
+      xp: 0,
+      level: 1,
+      traits: [],
+      skillCooldown: 0,
+      woundedTurnsRemaining: 0,
+      skillActiveUntilTurn: 0,
+      markedTargetUnitId: null,
+    };
 
     houses[houseId] = {
       id: houseId,
@@ -303,6 +440,7 @@ export function createInitialGameState(options: NewGameOptions): GameState {
       isEliminated: false,
       resources: {
         materials: STARTING_MATERIALS,
+        iron: STARTING_IRON,
         coin: STARTING_COIN,
       },
       favor: 0,
@@ -311,16 +449,23 @@ export function createInitialGameState(options: NewGameOptions): GameState {
       coinMilestonesClaimed: 0,
       nextCoinMilestone: INITIAL_COIN_MILESTONE,
       decreeIds: [...def.startingDecreeIds],
+      lockedDecreeIds: [],
       startingDecreeCount: def.startingDecreeCount,
       pendingDraftCount: 0,
       pendingSpecializationKeepIds: [],
+      pendingCitadelKeepIds: [],
+      pendingHonorUnitIds: [],
+      pendingCommanderTrait: false,
       settlementNamesUsed: 1,
+      outpostsFoundedCount: 0,
       stats: {
         unitsDestroyed: 0,
         keepsCaptured: 0,
+        commandersWounded: 0,
         ruinsExplored: 0,
         campsCleared: 0,
         watchtowersReached: 0,
+        highSeatCaptured: 0,
         tilesRevealed: 0,
         lifetimeFavor: 0,
       },
@@ -329,8 +474,8 @@ export function createInitialGameState(options: NewGameOptions): GameState {
     };
 
     const houseFog: Record<CoordKey, FogStatus> = {};
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
         houseFog[coordKey(x, y)] = 'unexplored';
       }
     }
@@ -341,8 +486,10 @@ export function createInitialGameState(options: NewGameOptions): GameState {
     version: CURRENT_SCHEMA_VERSION,
     specVersion: SPEC_VERSION,
     mode: options.mode,
+    chronicleLimit,
+    mapPreset,
     difficulty: options.difficulty,
-    gridSize: GRID_SIZE,
+    gridSize,
     turnNumber: 1,
     rngSeed: options.seed,
     rngCounter: gen.rngCounter,
@@ -354,8 +501,12 @@ export function createInitialGameState(options: NewGameOptions): GameState {
     victoryType: null,
     tiles,
     keeps,
-    units: {},
+    outposts: {},
+    units,
     houses,
+    commanders,
+    highSeatTileKey: gen.highSeatTileKey,
+    highSeatFirstCapturedBy: null,
     fog,
     crown: {
       activeWrits: [],
@@ -370,13 +521,13 @@ export function createInitialGameState(options: NewGameOptions): GameState {
     chronicle: [],
     pendingDraftChoices: null,
     pendingEventChoice: null,
-    nextUnitSeq: 1,
+    nextUnitSeq,
     nextKeepSeq,
+    nextOutpostSeq: 1,
     nextEffectSeq: 1,
     nextChronicleSeq: 1,
   };
 
-  // Compute initial fog-of-war for every House
   for (const houseId of houseOrder) {
     state = recomputeHouseFog(state, houseId);
   }

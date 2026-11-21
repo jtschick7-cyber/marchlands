@@ -1,5 +1,5 @@
 /**
- * Marchlands (Spec v0.3) — Canonical Pure TypeScript Types
+ * Marchlands (Spec v2.0) — Canonical Pure TypeScript Types
  *
  * ZERO runtime code. Every GameState field must be 100% JSON-serializable:
  * primitives (string, number, boolean, null), plain arrays, and plain Records.
@@ -13,8 +13,10 @@ export interface Coord {
   readonly y: number;
 }
 
-export type SpecVersion = '0.3';
+export type SpecVersion = '2.0';
 export type GameMode = 'dominion' | 'chronicle';
+export type MapPreset = 'compact' | 'standard' | 'grand';
+export type ChronicleLength = 48 | 72 | 108;
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
@@ -27,15 +29,24 @@ export type LandmarkType =
   | 'frontier_village'
   | 'ancient_watchtower'
   | 'relic_ruin'
-  | 'outlaw_camp';
+  | 'outlaw_camp'
+  | 'high_seat';
 
 export type ImprovementId =
   | 'farm'
+  | 'logging_camp'
   | 'lumber_mill'
+  | 'stone_quarry'
+  | 'highland_pasture'
+  | 'river_fishery'
+  | 'stone_bridge'
   | 'iron_mine'
-  | 'smithy'
+  | 'peak_beacon'
   | 'market'
   | 'granary'
+  | 'barracks'
+  | 'smithy'
+  | 'siege_workshop'
   | 'palisade'
   | 'watchtower'
   | 'foresters_lodge'
@@ -44,29 +55,45 @@ export type ImprovementId =
   | 'war_camp'
   | 'signal_bastion';
 
-export type UnitClass = 'infantry' | 'spearman' | 'ranged' | 'cavalry' | 'siege';
+export type UnitClass =
+  | 'infantry'
+  | 'spearman'
+  | 'ranged'
+  | 'cavalry'
+  | 'siege'
+  | 'commander';
 
 export type UnitId =
   | 'militia'
   | 'spearman'
   | 'sapper_crew'
   | 'archer'
-  | 'crossbowman'
   | 'men_at_arms'
+  | 'crossbowman'
   | 'knight'
   | 'siege_ram'
+  | 'trebuchet'
   | 'longbowman'
   | 'oathsworn_halberdier'
   | 'gilded_lancer'
   | 'dusk_outrider'
   | 'vanguard_spearman'
-  | 'free_company_spearman';
+  | 'free_company_spearman'
+  | 'lord_commander';
 
 export type KeepSpecialization =
   | 'none'
   | 'garrison'
   | 'market_town'
-  | 'granary_seat';
+  | 'granary_seat'
+  | 'forge_seat';
+
+export type CitadelCharter =
+  | 'none'
+  | 'war_college'
+  | 'grand_exchange'
+  | 'royal_bastion'
+  | 'high_armory';
 
 export type FogStatus = 'unexplored' | 'explored' | 'visible';
 
@@ -74,6 +101,9 @@ export type Phase =
   | 'player_command'
   | 'draft_modal'
   | 'specialization_modal'
+  | 'citadel_modal'
+  | 'honor_modal'
+  | 'commander_trait_modal'
   | 'event_modal'
   | 'ai_turn'
   | 'game_over';
@@ -85,37 +115,73 @@ export type VictoryType =
   | 'score'
   | 'defeat';
 
-export type DecreeCategory = 'infrastructure' | 'military' | 'doctrine';
+export type DecreePairId =
+  | 'pair_army'
+  | 'pair_warfare'
+  | 'pair_economy'
+  | 'pair_winter'
+  | 'pair_crown'
+  | 'pair_firepower'
+  | 'pair_medicine'
+  | 'pair_frontier';
 
 export type DecreeId =
-  // Category A: Infrastructure Blueprints (6)
-  | 'decree_iron_prospecting'
-  | 'decree_master_smiths'
-  | 'decree_timber_palisades'
-  | 'decree_frontier_towers'
-  | 'decree_chartered_markets'
-  | 'decree_stone_granaries'
-  // Category B: Military Charters (5)
-  | 'decree_fletchers_guild'
-  | 'decree_steel_arbalests'
-  | 'decree_sword_guilds'
-  | 'decree_chivalric_order'
-  | 'decree_siege_engineers'
-  // Category C: Kingdom Doctrines & Passives (14)
-  | 'decree_crop_rotation'
-  | 'decree_coppice_forestry'
-  | 'decree_forced_march'
-  | 'decree_veteran_drill'
-  | 'decree_shield_wall'
-  | 'decree_supply_lines'
-  | 'decree_crown_envoys'
-  | 'decree_border_levies'
+  | 'decree_feudal_levies'
+  | 'decree_standing_corps'
+  | 'decree_stone_curtain'
+  | 'decree_mobile_vanguard'
+  | 'decree_chartered_guilds'
+  | 'decree_royal_extraction'
+  | 'decree_winter_granaries'
+  | 'decree_hardened_marchers'
+  | 'decree_regents_envoy'
+  | 'decree_iron_sovereign'
+  | 'decree_bodkin_volleys'
+  | 'decree_grand_bombardment'
   | 'decree_field_surgeons'
-  | 'decree_highland_scouts'
-  | 'decree_toll_roads'
   | 'decree_salvage_crews'
-  | 'decree_fletcher_volleys'
-  | 'decree_masonry_reinforcement';
+  | 'decree_border_wardens'
+  | 'decree_royal_roads';
+
+export type CommanderSkillId =
+  | 'wardens_volley'
+  | 'hold_the_line'
+  | 'golden_banner'
+  | 'raiders_horn'
+  | 'beacon_mark';
+
+export type CommanderTraitId =
+  | 'trait_castellan'
+  | 'trait_vanguard'
+  | 'trait_siege_master'
+  | 'trait_quartermaster';
+
+export type BattleHonorId =
+  // Infantry
+  | 'honor_wallbreaker'
+  | 'honor_stalwart'
+  | 'honor_shock_blade'
+  | 'honor_iron_guard'
+  // Spearman
+  | 'honor_pike_wall'
+  | 'honor_march_guard'
+  | 'honor_phalanx_master'
+  | 'honor_bulwark'
+  // Ranged
+  | 'honor_marksman'
+  | 'honor_skirmisher'
+  | 'honor_deadeye'
+  | 'honor_high_watch'
+  // Cavalry
+  | 'honor_shock_lancer'
+  | 'honor_outrider'
+  | 'honor_barded_steed'
+  | 'honor_raider'
+  // Siege
+  | 'honor_breacher'
+  | 'honor_field_engineer'
+  | 'honor_heavy_mantlet'
+  | 'honor_rapid_crew';
 
 export type RelicRuinId =
   | 'ruin_sunken_armory'
@@ -174,12 +240,18 @@ export type AiPosture = 'expand' | 'defend' | 'attack' | 'claim';
 
 export type ChronicleEventType =
   | 'combat'
+  | 'overwatch_shot'
   | 'unit_destroyed'
   | 'keep_captured'
+  | 'high_seat_captured'
+  | 'outpost_founded'
+  | 'outpost_captured'
   | 'village_annexed'
   | 'village_seized'
   | 'keep_upgraded'
   | 'keep_specialized'
+  | 'citadel_chartered'
+  | 'improvement_upgraded'
   | 'decree_enacted'
   | 'ruin_explored'
   | 'watchtower_reached'
@@ -197,9 +269,14 @@ export type ChronicleEventType =
   | 'house_eliminated'
   | 'ai_watchdog_timeout'
   | 'unit_promoted'
+  | 'commander_skill'
+  | 'commander_wounded'
+  | 'commander_rallied'
   | 'keep_repaired'
+  | 'garrison_volley'
   | 'improvement_demolished'
   | 'unit_disbanded'
+  | 'unit_reinforced'
   | 'victory';
 
 // ============================================================================
@@ -218,11 +295,16 @@ export interface TileState {
   villageHp: number | null;
   villageDamagedLastRound: boolean;
   banditHp: number | null;
+  highSeatHp: number | null;
+  highSeatDamagedLastRound: boolean;
   revealedByHouseIds: HouseId[];
   firstVisitedByHouseId: HouseId | null;
   ownerHouseId: HouseId | null;
   keepId: string | null;
+  outpostId: string | null;
   improvement: ImprovementId | null;
+  improvementLevel: 1 | 2;
+  hasRoad: boolean;
   fortificationHp: number | null;
 }
 
@@ -233,21 +315,48 @@ export interface KeepState {
   tileKey: CoordKey;
   x: number;
   y: number;
-  tier: 1 | 2;
+  tier: 1 | 2 | 3;
   isCapital: boolean;
+  isHighSeat: boolean;
   specialization: KeepSpecialization;
+  citadelCharter: CitadelCharter;
   keepHp: number;
   maxKeepHp: number;
   damagedLastRound: boolean;
+  garrisonVolleyUsedThisTurn: boolean;
   foodProgress: number;
   repeatMilestonesClaimed: number;
+}
+
+export interface OutpostState {
+  id: string;
+  name: string;
+  ownerHouseId: HouseId;
+  tileKey: CoordKey;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  damagedLastRound: boolean;
+}
+
+export interface CommanderState {
+  houseId: HouseId;
+  unitId: string | null;
+  xp: number;
+  level: 1 | 2 | 3;
+  traits: CommanderTraitId[];
+  skillCooldown: number;
+  woundedTurnsRemaining: number;
+  skillActiveUntilTurn: number;
+  markedTargetUnitId: string | null;
 }
 
 export interface UnitState {
   id: string;
   houseId: HouseId;
   typeId: UnitId;
-  homeKeepId: string; // Keep ID, 'orphaned', or 'free_company'
+  homeKeepId: string; // Keep ID, 'orphaned', 'free_company', or 'commander'
   tileKey: CoordKey;
   x: number;
   y: number;
@@ -261,14 +370,23 @@ export interface UnitState {
   damagedSinceLastTurn: boolean;
   xp: number;
   isFortified: boolean;
+  isOverwatch: boolean;
+  isDeployed: boolean;
+  isCommander: boolean;
+  movedOpenTilesThisTurn: number;
+  battleHonors: BattleHonorId[];
+  overwatchRangeBonusUntilTurn: number;
+  commanderBuffUntilTurn: number;
 }
 
 export interface HouseStats {
   unitsDestroyed: number;
   keepsCaptured: number;
+  commandersWounded: number;
   ruinsExplored: number;
   campsCleared: number;
   watchtowersReached: number;
+  highSeatCaptured: number;
   tilesRevealed: number;
   lifetimeFavor: number;
 }
@@ -288,6 +406,7 @@ export interface HouseState {
   isEliminated: boolean;
   resources: {
     materials: number;
+    iron: number;
     coin: number;
   };
   favor: number;
@@ -296,10 +415,15 @@ export interface HouseState {
   coinMilestonesClaimed: number;
   nextCoinMilestone: number;
   decreeIds: DecreeId[];
+  lockedDecreeIds: DecreeId[];
   startingDecreeCount: number;
   pendingDraftCount: number;
   pendingSpecializationKeepIds: string[];
+  pendingCitadelKeepIds: string[];
+  pendingHonorUnitIds: string[];
+  pendingCommanderTrait: boolean;
   settlementNamesUsed: number;
+  outpostsFoundedCount: number;
   stats: HouseStats;
   writProgress: Record<string, number>;
   aiPlan: AiPlan | null;
@@ -348,6 +472,8 @@ export interface GameState {
   version: number;
   specVersion: SpecVersion;
   mode: GameMode;
+  chronicleLimit: ChronicleLength;
+  mapPreset: MapPreset;
   difficulty: Difficulty;
   gridSize: number;
   turnNumber: number;
@@ -361,8 +487,12 @@ export interface GameState {
   victoryType: VictoryType | null;
   tiles: Record<CoordKey, TileState>;
   keeps: Record<string, KeepState>;
+  outposts: Record<string, OutpostState>;
   units: Record<string, UnitState>;
   houses: Record<string, HouseState>;
+  commanders: Record<string, CommanderState>;
+  highSeatTileKey: CoordKey | null;
+  highSeatFirstCapturedBy: HouseId | null;
   fog: Record<string, Record<CoordKey, FogStatus>>;
   crown: CrownState;
   activeEffects: ActiveEffect[];
@@ -372,6 +502,7 @@ export interface GameState {
   pendingEventChoice: PendingEventChoice | null;
   nextUnitSeq: number;
   nextKeepSeq: number;
+  nextOutpostSeq: number;
   nextEffectSeq: number;
   nextChronicleSeq: number;
 }
@@ -381,10 +512,10 @@ export interface GameState {
 // ============================================================================
 
 export interface TileThreat {
-  vsSpearman: number; // Canonical Spearman (Def 6)
-  vsCavalry: number;  // Canonical Knight (Def 5)
-  vsRanged: number;   // Canonical Archer (Def 2); also used by Siege units
-  vsInfantry: number; // Canonical Men-at-Arms (Def 5)
+  vsSpearman: number;
+  vsCavalry: number;
+  vsRanged: number;
+  vsInfantry: number;
 }
 
 // ============================================================================
@@ -397,6 +528,7 @@ export interface SaveMetadata {
   turnNumber: number;
   houseId: HouseId;
   mode: GameMode;
+  mapPreset: MapPreset;
 }
 
 // ============================================================================
@@ -418,6 +550,11 @@ export interface HouseDef {
   readonly passiveDescription: string;
   readonly uniqueImprovementId: ImprovementId;
   readonly signatureUnitId: UnitId;
+  readonly commanderName: string;
+  readonly commanderSkillId: CommanderSkillId;
+  readonly commanderSkillName: string;
+  readonly commanderSkillDesc: string;
+  readonly commanderMovement: number;
   readonly startingDecreeIds: readonly DecreeId[];
   readonly startingDecreeCount: number;
   readonly aiPersonalityLabel: string;
@@ -425,56 +562,109 @@ export interface HouseDef {
   readonly settlementNames: readonly string[];
 }
 
+export type LocalBuildingRequirement =
+  | 'none'
+  | 'barracks'
+  | 'barracks_and_smithy'
+  | 'smithy_combo'
+  | 'siege_workshop'
+  | 'trebuchet_yard';
+
 export interface UnitDef {
   readonly id: UnitId;
   readonly name: string;
   readonly unitClass: UnitClass;
-  readonly houseId: HouseId | null; // null = available to all Houses (or event-only if isEventOnly)
+  readonly houseId: HouseId | null;
   readonly isEventOnly: boolean;
+  readonly isCommanderUnit: boolean;
   readonly maxHp: number;
   readonly attack: number;
-  readonly structureAttack: number | null; // Non-null for siege units (siege_ram: 8, sapper_crew: 6)
+  readonly structureAttack: number | null;
   readonly defense: number;
   readonly movement: number;
   readonly range: number;
   readonly sight: number;
   readonly matCost: number;
+  readonly ironCost: number;
   readonly coinUpkeep: number;
-  readonly requiredDecreeId: DecreeId | null;
-  readonly requiresSmithyCombo: boolean;
+  readonly localRequirement: LocalBuildingRequirement;
+  readonly armorPiercingRatio: number; // e.g., 0.30 for Crossbowman vs Def >= 5
+  readonly requiresDeploy: boolean;
   readonly countsTowardArmyCap: boolean;
   readonly canRehome: boolean;
   readonly flavor: string;
 }
 
+export interface ImprovementUpgradeDef {
+  readonly name: string;
+  readonly matCost: number;
+  readonly ironCost: number;
+  readonly coinCost: number;
+  readonly minKeepTier: 2 | 3;
+  readonly baseFood: number;
+  readonly baseMaterials: number;
+  readonly baseIron: number;
+  readonly baseCoin: number;
+  readonly coinUpkeep: number;
+  readonly maxFortificationHp: number | null;
+  readonly description: string;
+}
+
 export interface ImprovementDef {
   readonly id: ImprovementId;
   readonly name: string;
-  readonly houseId: HouseId | null; // null = shared across all Houses
+  readonly houseId: HouseId | null;
+  readonly minKeepTier: 1 | 2 | 3;
   readonly matCost: number;
-  readonly ironhelmMatCost: number | null; // Discounted cost for Ironhelm walls/towers
+  readonly ironCost: number;
+  readonly coinCost: number;
+  readonly ironhelmMatCost: number | null;
+  readonly coinUpkeep: number;
   readonly validTerrains: readonly TerrainType[];
   readonly requiresIronDeposit: boolean;
   readonly allowsBareMountainForOwner: boolean;
+  readonly allowOneTileOutsideBorder: boolean;
   readonly isFortification: boolean;
   readonly isEconomic: boolean;
+  readonly isMilitaryBuilding: boolean;
+  readonly maxFortificationHp: number | null;
   readonly baseFood: number;
   readonly baseMaterials: number;
+  readonly baseIron: number;
   readonly baseCoin: number;
-  readonly requiredDecreeId: DecreeId | null;
-  readonly convertsToOnCapture: ImprovementId | null; // null = destroyed on capture (if faction-unique)
+  readonly convertsToOnCapture: ImprovementId | null;
   readonly description: string;
+  readonly upgrade: ImprovementUpgradeDef | null;
+}
+
+export interface DecreePairDef {
+  readonly id: DecreePairId;
+  readonly theme: string;
+  readonly options: readonly [DecreeId, DecreeId];
 }
 
 export interface DecreeDef {
   readonly id: DecreeId;
+  readonly pairId: DecreePairId;
+  readonly oppositeId: DecreeId;
   readonly title: string;
-  readonly category: DecreeCategory;
   readonly flavor: string;
   readonly effectText: string;
-  readonly unlocksImprovementId: ImprovementId | null;
-  readonly unlocksUnitId: UnitId | null;
-  readonly excludedHouseIds?: readonly HouseId[];
+}
+
+export interface BattleHonorDef {
+  readonly id: BattleHonorId;
+  readonly unitClass: Exclude<UnitClass, 'commander'>;
+  readonly rank: 1 | 2;
+  readonly title: string;
+  readonly effectText: string;
+}
+
+export interface CommanderTraitDef {
+  readonly id: CommanderTraitId;
+  readonly level: 2 | 3;
+  readonly title: string;
+  readonly effectText: string;
 }
 
 export interface RelicRuinDef {
@@ -487,11 +677,11 @@ export interface RelicRuinDef {
 export interface FrontierEventDef {
   readonly id: EventId;
   readonly title: string;
-  readonly seasons: readonly Season[]; // Empty or all 4 = Any
+  readonly seasons: readonly Season[];
   readonly target: EventTarget;
   readonly hasChoice: boolean;
   readonly choiceOptions: readonly string[];
-  readonly durationTurns: number; // 0 for instant events, 3 for seasonal effects
+  readonly durationTurns: number;
   readonly vignette: string;
   readonly effectText: string;
 }
@@ -504,6 +694,7 @@ export interface CrownWritDef {
   readonly rewardFavor: number;
   readonly rewardCoin: number;
   readonly rewardMaterials: number;
+  readonly rewardIron: number;
   readonly isVoluntaryTithe: boolean;
   readonly titheCoinCost: number;
 }
@@ -512,23 +703,56 @@ export interface KeepSpecializationDef {
   readonly id: Exclude<KeepSpecialization, 'none'>;
   readonly name: string;
   readonly armyCapBonus: number;
-  readonly maxKeepHp: number;
-  readonly keepRegenPerTurn: number;
+  readonly maxKeepHpBonus: number;
+  readonly keepRegenBonus: number;
   readonly territoryDefBonus: number;
-  readonly palisadeCap: number;
+  readonly palisadeCapBonus: number;
   readonly coinPerTurn: number;
   readonly marketCoinBonus: number;
   readonly annexCoinDiscount: number;
   readonly foodPerTurn: number;
   readonly farmFoodBonus: number;
-  readonly repeatFoodThreshold: number;
+  readonly ironPerTurn: number;
+  readonly unitIronDiscount: number;
+  readonly growthThresholdMultiplier: number;
   readonly description: string;
+}
+
+export interface CitadelCharterDef {
+  readonly id: Exclude<CitadelCharter, 'none'>;
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface MapPresetConfig {
+  readonly id: MapPreset;
+  readonly label: string;
+  readonly gridSize: 22 | 28 | 34;
+  readonly capitalMinSpacing: number;
+  readonly capitalMinEdgeDist: number;
+  readonly villagesPerHouse: number;
+  readonly extraContestedVillages: number;
+  readonly minVillagesCloserPerHouse: number;
+  readonly watchtowerCount: number;
+  readonly relicRuinCount: number;
+  readonly outlawCampCountBase: number;
+  readonly extraIronMin: number;
+  readonly extraIronMax: number;
+  readonly hasHighSeat: boolean;
+  readonly supremacyKeepShare: number;
+  readonly supremacyMinKeeps4: number;
+  readonly supremacyMinKeeps5: number;
+  readonly mandateMinFavor: number;
+  readonly mandateMinKeeps: number;
+  readonly mandateMinTier3Citadels: number;
+  readonly mandateHoldTurns: number;
+  readonly defaultMaxTurns: number;
 }
 
 export interface TerrainDef {
   readonly id: TerrainType;
   readonly name: string;
-  readonly moveCost: number | null; // null = impassable
+  readonly moveCost: number | null;
   readonly defBonus: number;
   readonly blocksCavalry: boolean;
   readonly blocksRangedLos: boolean;
@@ -541,6 +765,7 @@ export interface SeasonDef {
   readonly subtitle: string;
   readonly riverMoveCost: number;
   readonly farmFoodDelta: number;
+  readonly loggingCampFoodDelta: number;
   readonly forestersLodgeFoodDelta: number;
   readonly granaryFoodDelta: number;
   readonly unitSightDelta: number;

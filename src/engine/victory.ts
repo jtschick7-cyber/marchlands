@@ -1,22 +1,10 @@
 /**
- * Marchlands (Spec v0.3) — Victory Condition Evaluator (Ruling 7.2)
- *
- * Strict priority order at the end of each House's turn:
- * 1. Elimination check (human eliminated -> Defeat immediately)
- * 2. Conquest (1 living House remaining — both Dominion & Chronicle)
- * 3. Regent's Mandate (Dominion only — evaluated in crown.ts)
- * 4. Supremacy (>= 65% of all owned Keeps AND >= 5 Keeps — Dominion only)
- * 5. Chronicle Score (Chronicle only, after final House finishes Turn 33)
+ * Marchlands (Spec v2.0) — Victory Condition Evaluator
  */
 
 import type { GameState } from '../types/game.ts';
-import {
-  CHRONICLE_TURN_LIMIT,
-  SUPREMACY_KEEP_SHARE,
-  SUPREMACY_MIN_KEEPS,
-} from '../data/index.ts';
 import { rankHousesByScore } from './scoring.ts';
-import { appendChronicle, getHouseKeeps } from './stateHelpers.ts';
+import { appendChronicle, getHouseKeeps, getMapPresetConfig } from './stateHelpers.ts';
 
 export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameState {
   if (state.phase === 'game_over') return state;
@@ -36,7 +24,6 @@ export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameS
     nextState = { ...nextState, houses: nextHouses };
   }
 
-  // Player Defeat check (both Dominion & Chronicle)
   if (nextState.humanHouseId !== null && nextState.houses[nextState.humanHouseId]?.isEliminated) {
     nextState = {
       ...nextState,
@@ -74,10 +61,11 @@ export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameS
     });
   }
 
-  // 3. Mandate already checked before checkVictory; if won, phase is already 'game_over'
-
-  // 4. Supremacy Victory (Dominion only)
+  // 4. Supremacy Victory (Dominion only, preset-scaled)
   if (nextState.mode === 'dominion') {
+    const cfg = getMapPresetConfig(nextState);
+    const minKeeps =
+      nextState.houseOrder.length <= 4 ? cfg.supremacyMinKeeps4 : cfg.supremacyMinKeeps5;
     const totalOwnedKeeps = living.reduce(
       (sum, hid) => sum + getHouseKeeps(nextState, hid).length,
       0,
@@ -85,7 +73,7 @@ export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameS
     if (totalOwnedKeeps > 0) {
       for (const hid of living) {
         const count = getHouseKeeps(nextState, hid).length;
-        if (count >= SUPREMACY_MIN_KEEPS && count / totalOwnedKeeps >= SUPREMACY_KEEP_SHARE) {
+        if (count >= minKeeps && count / totalOwnedKeeps >= cfg.supremacyKeepShare) {
           nextState = {
             ...nextState,
             phase: 'game_over',
@@ -105,11 +93,11 @@ export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameS
     }
   }
 
-  // 5. Chronicle Score Victory (Chronicle only, after final House finishes Turn 33)
+  // 5. Chronicle Score Victory
   if (
     nextState.mode === 'chronicle' &&
     isEndOfFullRound &&
-    nextState.turnNumber >= CHRONICLE_TURN_LIMIT
+    nextState.turnNumber >= nextState.chronicleLimit
   ) {
     const ranked = rankHousesByScore(nextState, true, false);
     const winner = ranked[0]!;
@@ -124,7 +112,7 @@ export function checkVictory(state: GameState, isEndOfFullRound: boolean): GameS
       actorHouseId: winner,
       targetHouseId: null,
       tileKey: null,
-      summary: `Chronicle complete (Turn ${CHRONICLE_TURN_LIMIT})! House ${winner} wins by Score.`,
+      summary: `Chronicle complete (Turn ${nextState.chronicleLimit})! House ${winner} wins by Score.`,
       isPublic: true,
     });
   }

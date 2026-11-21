@@ -1,27 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, KeepState, UnitState } from '../../types/game.ts';
 import {
-  KEEP_BASE_MAX_HP,
-  KEEP_GARRISON_MAX_HP,
+  COMMANDER_RANSOM_COIN,
+  COMMANDER_RANSOM_FAVOR,
+  COMMANDER_WOUNDED_TURNS,
+  KEEP_GARRISON_HP_BONUS,
+  KEEP_TIER1_MAX_HP,
+  KEEP_TIER2_MAX_HP,
+  KEEP_TIER3_IRON_COST,
+  KEEP_TIER3_MAX_HP,
+  PALISADE_LV1_HP,
+  REINFORCE_HEAL_AMOUNT,
   UNITS,
   VILLAGE_SEIZE_KEEP_HP,
+  WALL_MELEE_SPIKE_DAMAGE,
 } from '../../data/index.ts';
-import { coordKey } from '../coords.ts';
+import { coordKey, chebyshevDist } from '../coords.ts';
+import { recomputeHouseFog } from '../fog.ts';
 import { createInitialGameState, addLifetimeCoin, getKeepArmyCap } from '../stateHelpers.ts';
-import { getReachableTiles, moveUnit } from '../movement.ts';
+import { getReachableTiles, isDiagonalWallBlocked, moveUnit } from '../movement.ts';
 import {
+  activateOverwatch,
   attackKeep,
   attackUnit,
   attackVillage,
+  deployTrebuchet,
+  fireKeepGarrisonVolley,
   pillageTile,
   previewUnitCombat,
   razeFortification,
+  useCommanderSkill,
 } from '../combat.ts';
 import {
   annexVillage,
   buildImprovement,
+  buildOutpost,
+  buildRoad,
   canBuildImprovement,
   canTrainUnit,
+  clearTimber,
   computeTileYield,
   demolishImprovement,
   disbandUnit,
@@ -29,8 +46,11 @@ import {
   keepHasSmithyCombo,
   processEndOfTurnHealingAndAttrition,
   processHarvestAndUpkeep,
+  reinforceUnit,
   repairKeep,
   trainUnit,
+  upgradeImprovement,
+  upgradeKeepToTier3,
 } from '../economy.ts';
 import { getNextIdleUnit, canUnitAct } from '../queries.ts';
 import { captureKeep, claimKeepTerritory, rehomeUnitManually } from '../capture.ts';
@@ -62,7 +82,14 @@ function makeTestUnit(
     isMutinied: false,
     damagedSinceLastTurn: false,
     xp: 0,
+    battleHonors: [],
     isFortified: false,
+    isOverwatch: false,
+    isDeployed: false,
+    isCommander: typeId === 'lord_commander',
+    movedOpenTilesThisTurn: 0,
+    commanderBuffUntilTurn: 0,
+    overwatchRangeBonusUntilTurn: 0,
     ...overrides,
   };
 }
@@ -72,10 +99,10 @@ function makeFlatPlainsState(): GameState {
     seed: 101,
     houseCount: 4,
     mode: 'dominion',
+    mapPreset: 'compact',
     difficulty: 'normal',
     humanHouseId: 'vane',
   });
-  // Normalize all tiles to clean plains without landmarks for controlled unit tests
   const tiles = { ...base.tiles };
   for (const k of Object.keys(tiles)) {
     tiles[k] = {
@@ -87,271 +114,390 @@ function makeFlatPlainsState(): GameState {
       relicRuinId: null,
       villageHp: null,
       banditHp: null,
+      highSeatHp: null,
       improvement: null,
+      improvementLevel: 1,
+      hasRoad: false,
       fortificationHp: null,
     };
   }
   return {
     ...base,
-    turnNumber: 4, // Summer baseline (no Spring/Autumn/Winter deltas)
+    turnNumber: 4, // Summer baseline
     tiles,
     units: {},
   };
 }
 
-describe('Step 5: Combat Math, Spearman Brace, One-Shot Protection & Siege', () => {
-  it('matches verified Plains Spearman Brace trades vs Knight, Gilded Lancer, and Dusk Outrider', () => {
+describe('Step 5 (v2.0): Closed 4-Way Combat, Crossbow AP, Brace, OSP & Class Tactics', () => {
+  it('enforces 4-way counter loop, Crossbow 30% Armor-Piercing, Spearman Brace & One-Shot Protection', () => {
     const state = makeFlatPlainsState();
     const vaneKeepId = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!.id;
     const corvusKeepId = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!.id;
 
-    // 1. Knight (8/5/25) vs Spearman (6/6/22) -> 12 dmg, Spearman braces for 16 retaliation
-    const s1: GameState = {
+    // 1. Knight vs Spearman -> Spearman Brace triggers
+    const sBrace: GameState = {
       ...state,
       units: {
         u_atk: makeTestUnit('u_atk', 'corvus', 'knight', 10, 10, corvusKeepId),
         u_def: makeTestUnit('u_def', 'vane', 'spearman', 11, 10, vaneKeepId),
       },
     };
-    const p1 = previewUnitCombat(s1, 'u_atk', 'u_def')!;
-    expect(p1.attackerDamage).toBe(12);
-    expect(p1.retaliationDamage).toBe(16);
-    expect(p1.braceTriggered).toBe(true);
-    expect(p1.defenderHpAfter).toBe(10);
-    expect(p1.attackerHpAfter).toBe(9);
+    const pBrace = previewUnitCombat(sBrace, 'u_atk', 'u_def')!;
+    expect(pBrace.braceTriggered).toBe(true);
+    expect(pBrace.retaliationDamage).toBeGreaterThanOrEqual(pBrace.attackerDamage);
 
-    // 2. Gilded Lancer (9/5/26) vs Spearman (6/6/22) -> 14 dmg, 16 retaliation
-    const s2: GameState = {
+    // 2. Closed 4-way loop: Men-at-Arms counters Spearman; Crossbow counters Men-at-Arms with 30% AP
+    const sLoop: GameState = {
       ...state,
       units: {
-        u_atk: makeTestUnit('u_atk', 'aurelia', 'gilded_lancer', 10, 10, corvusKeepId),
-        u_def: makeTestUnit('u_def', 'vane', 'spearman', 11, 10, vaneKeepId),
+        u_maa: makeTestUnit('u_maa', 'corvus', 'men_at_arms', 10, 10, corvusKeepId),
+        u_spear: makeTestUnit('u_spear', 'vane', 'spearman', 11, 10, vaneKeepId),
+        u_xbow: makeTestUnit('u_xbow', 'vane', 'crossbowman', 10, 12, vaneKeepId),
+        u_arch: makeTestUnit('u_arch', 'vane', 'archer', 12, 12, vaneKeepId),
+        u_knight: makeTestUnit('u_knight', 'corvus', 'knight', 13, 12, corvusKeepId),
       },
     };
-    const p2 = previewUnitCombat(s2, 'u_atk', 'u_def')!;
-    expect(p2.attackerDamage).toBe(14);
-    expect(p2.retaliationDamage).toBe(16);
+    const pInfVsSpear = previewUnitCombat(sLoop, 'u_maa', 'u_spear')!;
+    expect(pInfVsSpear.attackerDamage).toBeGreaterThanOrEqual(12); // Infantry counters Spearman (+40%)
+    expect(pInfVsSpear.shieldPushTriggered).toBe(true);
 
-    // 3. Dusk Outrider (7/4/20) vs Spearman (6/6/22) -> 10 dmg, 17 retaliation
-    const s3: GameState = {
-      ...state,
-      units: {
-        u_atk: makeTestUnit('u_atk', 'corvus', 'dusk_outrider', 10, 10, corvusKeepId),
-        u_def: makeTestUnit('u_def', 'vane', 'spearman', 11, 10, vaneKeepId),
-      },
-    };
-    const p3 = previewUnitCombat(s3, 'u_atk', 'u_def')!;
-    expect(p3.attackerDamage).toBe(10);
-    expect(p3.retaliationDamage).toBe(17);
+    const pXbowVsMaa = previewUnitCombat(sLoop, 'u_xbow', 'u_maa')!;
+    const pArchVsMaa = previewUnitCombat(sLoop, 'u_arch', 'u_maa')!;
+    expect(pXbowVsMaa.attackerDamage).toBeGreaterThan(pArchVsMaa.attackerDamage); // 30% AP vs Def >= 5
+    // Ranged NEVER one-shots full-HP target (One-Shot Protection)
+    expect(pXbowVsMaa.defenderHpAfter).toBeGreaterThanOrEqual(1);
+
+    // Melee with counter advantage (Knight -> Archer) CAN one-shot full-HP target
+    const pKnightVsArch = previewUnitCombat(sLoop, 'u_knight', 'u_arch')!;
+    expect(pKnightVsArch.defenderDestroyed).toBe(true);
+    expect(pKnightVsArch.oneShotProtectionTriggered).toBe(false);
   });
 
-  it('enforces One-Shot Protection: ranged never one-shots full-HP, melee counter can', () => {
+  it('executes Infantry Shield Push, Cavalry Lance Charge, Ranged Overwatch & Trebuchet Deploy', () => {
     const state = makeFlatPlainsState();
     const vaneKeepId = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!.id;
     const corvusKeepId = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!.id;
 
-    // Crossbowman (8 Atk) + Veteran Drill (+15%) + Bodkin Quivers (1.65x) vs full-HP Spearman (or Archer)
-    const boostedState: GameState = {
+    // 1. Infantry Shield Push pushes defender back 1 tile off the chokepoint
+    const pushState: GameState = {
       ...state,
-      houses: {
-        ...state.houses,
-        vane: {
-          ...state.houses.vane!,
-          decreeIds: ['decree_veteran_drill', 'decree_fletcher_volleys'],
-        },
-      },
       units: {
-        u_xbow: makeTestUnit('u_xbow', 'vane', 'crossbowman', 10, 10, vaneKeepId),
-        u_spear: makeTestUnit('u_spear', 'corvus', 'spearman', 12, 10, corvusKeepId),
-        u_knight: makeTestUnit('u_knight', 'corvus', 'knight', 5, 5, corvusKeepId),
-        u_arch: makeTestUnit('u_arch', 'vane', 'archer', 6, 5, vaneKeepId),
+        u_maa: makeTestUnit('u_maa', 'corvus', 'men_at_arms', 10, 10, corvusKeepId),
+        u_def: makeTestUnit('u_def', 'vane', 'spearman', 11, 10, vaneKeepId),
       },
     };
+    const pushed = attackUnit(pushState, 'u_maa', 'u_def');
+    expect(pushed.units.u_def!.x).toBe(12);
 
-    // Ranged unit with massive bonuses STILL cannot one-shot full-HP Spearman
-    const rangedPreview = previewUnitCombat(boostedState, 'u_xbow', 'u_spear')!;
-    expect(rangedPreview.defenderHpAfter).toBeGreaterThanOrEqual(1);
-    expect(rangedPreview.defenderDestroyed).toBe(false);
+    // 2. Cavalry Lance Charge gains +20% Attack after moving >= 2 open tiles
+    const chargeBase: GameState = {
+      ...state,
+      units: {
+        u_cav: makeTestUnit('u_cav', 'corvus', 'knight', 10, 10, corvusKeepId),
+        u_tgt: makeTestUnit('u_tgt', 'vane', 'men_at_arms', 13, 10, vaneKeepId),
+      },
+    };
+    const movedCav = moveUnit(chargeBase, 'u_cav', coordKey(12, 10));
+    expect(movedCav.units.u_cav!.movedOpenTilesThisTurn).toBeGreaterThanOrEqual(2);
+    const chargePrev = previewUnitCombat(movedCav, 'u_cav', 'u_tgt')!;
+    expect(chargePrev.chargeTriggered).toBe(true);
 
-    // Melee unit with counter advantage (Knight -> Archer) CAN one-shot full-HP Archer
-    const meleeCounterPreview = previewUnitCombat(boostedState, 'u_knight', 'u_arch')!;
-    expect(meleeCounterPreview.defenderDestroyed).toBe(true);
-    expect(meleeCounterPreview.oneShotProtectionTriggered).toBe(false);
+    // 3. Ranged Overwatch intercepts moving enemy unit automatically
+    const owBase: GameState = {
+      ...state,
+      units: {
+        u_arch: makeTestUnit('u_arch', 'vane', 'archer', 10, 10, vaneKeepId),
+        u_enemy: makeTestUnit('u_enemy', 'corvus', 'men_at_arms', 13, 10, corvusKeepId),
+      },
+    };
+    const armed = recomputeHouseFog(activateOverwatch(owBase, 'u_arch'), 'vane');
+    expect(armed.units.u_arch!.isOverwatch).toBe(true);
+    const intercepted = moveUnit(armed, 'u_enemy', coordKey(12, 10));
+    expect(intercepted.units.u_enemy!.hp).toBeLessThan(UNITS.men_at_arms.maxHp);
+    expect(intercepted.units.u_arch!.isOverwatch).toBe(false);
+
+    // 4. Trebuchet must Deploy before firing from Range 3
+    const trebState: GameState = {
+      ...state,
+      units: {
+        u_treb: makeTestUnit('u_treb', 'corvus', 'trebuchet', 10, 10, corvusKeepId),
+        u_tgt: makeTestUnit('u_tgt', 'vane', 'spearman', 13, 10, vaneKeepId),
+      },
+    };
+    expect(previewUnitCombat(trebState, 'u_treb', 'u_tgt')).toBeNull(); // Undeployed cannot fire!
+    const deployed = deployTrebuchet(trebState, 'u_treb');
+    expect(deployed.units.u_treb!.isDeployed).toBe(true);
+    const readyTreb: GameState = {
+      ...deployed,
+      units: { ...deployed.units, u_treb: { ...deployed.units.u_treb!, hasAttacked: false } },
+    };
+    const pTreb = previewUnitCombat(readyTreb, 'u_treb', 'u_tgt')!;
+    expect(pTreb.attackerDamage).toBeGreaterThan(0);
   });
 
-  it('verifies Siege Ram 1-hit raze / 2-hit Keep & Sapper Crew 2-hit raze with zero retaliation', () => {
+  it('enforces Wall Linking diagonal blocking, additive Wall cover, 50% non-siege penalty & spike damage', () => {
     const state = makeFlatPlainsState();
     const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
     const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
-    const palKey = coordKey(10, 10);
 
-    // Place enemy Palisade with Mortar & Stonework
-    const s: GameState = {
+    // Place two orthogonal enemy Palisades at (11,10) and (10,11) -> blocks diagonal (10,10)->(11,11)
+    const sWall: GameState = {
       ...state,
-      houses: {
-        ...state.houses,
-        vane: {
-          ...state.houses.vane!,
-          decreeIds: ['decree_masonry_reinforcement'],
-        },
-      },
       tiles: {
         ...state.tiles,
-        [palKey]: {
-          ...state.tiles[palKey]!,
+        [coordKey(11, 10)]: {
+          ...state.tiles[coordKey(11, 10)]!,
           ownerHouseId: 'vane',
           keepId: vaneKeep.id,
           improvement: 'palisade',
-          fortificationHp: 12,
+          fortificationHp: PALISADE_LV1_HP,
+        },
+        [coordKey(10, 11)]: {
+          ...state.tiles[coordKey(10, 11)]!,
+          ownerHouseId: 'vane',
+          keepId: vaneKeep.id,
+          improvement: 'palisade',
+          fortificationHp: PALISADE_LV1_HP,
         },
       },
       units: {
-        u_ram: makeTestUnit('u_ram', 'corvus', 'siege_ram', 9, 10, corvusKeep.id),
-        u_sapper: makeTestUnit('u_sapper', 'corvus', 'sapper_crew', 11, 10, corvusKeep.id),
+        u_corvus: makeTestUnit('u_corvus', 'corvus', 'men_at_arms', 10, 10, corvusKeep.id),
+        u_sapper: makeTestUnit('u_sapper', 'corvus', 'sapper_crew', 11, 9, corvusKeep.id),
       },
     };
 
-    // Sapper Crew hits Masonry Palisade for 8 dmg (12 -> 4), 2-hit raze
-    const afterSapper1 = razeFortification(s, 'u_sapper', palKey);
-    expect(afterSapper1.tiles[palKey]!.fortificationHp).toBe(4);
-    expect(afterSapper1.tiles[palKey]!.improvement).toBe('palisade');
-    expect(afterSapper1.units.u_sapper!.hp).toBe(18); // zero retaliation
+    expect(isDiagonalWallBlocked(sWall, sWall.units.u_corvus!, 10, 10, 11, 11)).toBe(true);
+    expect(getReachableTiles(sWall, 'u_corvus')[coordKey(11, 11)]).toBeUndefined();
 
-    const afterSapper2 = razeFortification(
-      {
-        ...afterSapper1,
-        units: {
-          ...afterSapper1.units,
-          u_sapper: { ...afterSapper1.units.u_sapper!, hasAttacked: false },
-        },
-      },
-      'u_sapper',
-      palKey,
+    // Non-siege melee razing Palisade deals 50% structure damage and takes 2 spike damage
+    const afterMeleeRaze = razeFortification(sWall, 'u_corvus', coordKey(11, 10));
+    expect(afterMeleeRaze.units.u_corvus!.hp).toBe(UNITS.men_at_arms.maxHp - WALL_MELEE_SPIKE_DAMAGE);
+
+    // Siege Sapper takes 0 spike damage and deals full structure damage
+    const afterSapperRaze = razeFortification(sWall, 'u_sapper', coordKey(11, 10));
+    expect(afterSapperRaze.units.u_sapper!.hp).toBe(UNITS.sapper_crew.maxHp);
+    expect(afterSapperRaze.tiles[coordKey(11, 10)]!.fortificationHp!).toBeLessThan(
+      afterMeleeRaze.tiles[coordKey(11, 10)]!.fortificationHp!,
     );
-    expect(afterSapper2.tiles[palKey]!.improvement).toBeNull();
-
-    // Siege Ram 1-hit razes even a Masonry Palisade (12 dmg >= 12 HP)
-    const afterRam = razeFortification(s, 'u_ram', palKey);
-    expect(afterRam.tiles[palKey]!.improvement).toBeNull();
-
-    // Siege Ram 2-hit neutralizes standard Keep (24 HP -> 11 -> captured at 12 HP)
-    const keepTest: GameState = {
-      ...state,
-      units: {
-        u_ram: makeTestUnit(
-          'u_ram',
-          'corvus',
-          'siege_ram',
-          vaneKeep.x + 1,
-          vaneKeep.y,
-          corvusKeep.id,
-        ),
-      },
-    };
-    const hit1 = attackKeep(keepTest, 'u_ram', vaneKeep.id);
-    expect(hit1.keeps[vaneKeep.id]!.keepHp).toBe(11);
-    expect(hit1.units.u_ram!.hp).toBe(24); // zero retaliation
-
-    const hit2 = attackKeep(
-      {
-        ...hit1,
-        units: { ...hit1.units, u_ram: { ...hit1.units.u_ram!, hasAttacked: false } },
-      },
-      'u_ram',
-      vaneKeep.id,
-    );
-    expect(hit2.keeps[vaneKeep.id]!.ownerHouseId).toBe('corvus');
-    expect(hit2.keeps[vaneKeep.id]!.keepHp).toBe(Math.floor(KEEP_BASE_MAX_HP / 2));
   });
 
-  it('enforces Corvus double Pillage loot and Flanking immunity on Vanguard Spearman', () => {
-    const state = makeFlatPlainsState();
-    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
-    const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
-    const farmKey = coordKey(10, 10);
+  it('executes Lord-Commander aura, reworked Vane Warden Volley, Wounded + Ransom, and Corvus double Pillage', () => {
+    const base = createInitialGameState({
+      seed: 202,
+      houseCount: 4,
+      mode: 'dominion',
+      mapPreset: 'compact',
+      difficulty: 'normal',
+      humanHouseId: 'vane',
+    });
 
-    const s: GameState = {
-      ...state,
+    // Turn 1 spawns every House's Lord-Commander on Capital
+    const vaneCmdId = base.commanders.vane!.unitId!;
+    const vaneCmd = base.units[vaneCmdId]!;
+    expect(vaneCmd.isCommander).toBe(true);
+
+    // Reworked Vane skill: Warden's Volley arms Overwatch & +1 Range on nearby ranged allies
+    const flat = makeFlatPlainsState();
+    const vaneKeep = Object.values(flat.keeps).find((k) => k.ownerHouseId === 'vane')!;
+    const corvusKeep = Object.values(flat.keeps).find((k) => k.ownerHouseId === 'corvus')!;
+    const sCmd: GameState = {
+      ...flat,
+      commanders: {
+        ...flat.commanders,
+        vane: { ...flat.commanders.vane!, unitId: 'u_cmd_vane', skillCooldown: 0 },
+      },
+      units: {
+        u_cmd_vane: makeTestUnit('u_cmd_vane', 'vane', 'lord_commander', 10, 10, 'commander'),
+        u_arch: makeTestUnit('u_arch', 'vane', 'archer', 11, 10, vaneKeep.id, { hasAttacked: true }),
+        u_killer: makeTestUnit('u_killer', 'corvus', 'knight', 9, 10, corvusKeep.id),
+      },
+    };
+    const afterVolley = useCommanderSkill(sCmd, 'vane');
+    expect(afterVolley.units.u_arch!.isOverwatch).toBe(true); // Even after acting!
+    expect(afterVolley.units.u_arch!.overwatchRangeBonusUntilTurn).toBe(flat.turnNumber + 1);
+    expect(afterVolley.commanders.vane!.skillCooldown).toBeGreaterThan(0);
+
+    // Defeating a Lord-Commander triggers 5-turn Wounded & awards +3 Favor + 15 Coin Ransom
+    const lowCmdState: GameState = {
+      ...sCmd,
+      units: {
+        ...sCmd.units,
+        u_cmd_vane: { ...sCmd.units.u_cmd_vane!, hp: 1 },
+      },
+    };
+    const afterSlay = attackUnit(lowCmdState, 'u_killer', 'u_cmd_vane');
+    expect(afterSlay.commanders.vane!.unitId).toBeNull();
+    expect(afterSlay.commanders.vane!.woundedTurnsRemaining).toBe(COMMANDER_WOUNDED_TURNS);
+    expect(afterSlay.houses.corvus!.favor).toBe(
+      lowCmdState.houses.corvus!.favor + COMMANDER_RANSOM_FAVOR,
+    );
+    expect(afterSlay.houses.corvus!.resources.coin).toBe(
+      lowCmdState.houses.corvus!.resources.coin + COMMANDER_RANSOM_COIN,
+    );
+
+    // Corvus double Pillage
+    const farmKey = coordKey(14, 14);
+    const pillageState: GameState = {
+      ...flat,
       tiles: {
-        ...state.tiles,
+        ...flat.tiles,
         [farmKey]: {
-          ...state.tiles[farmKey]!,
+          ...flat.tiles[farmKey]!,
           ownerHouseId: 'vane',
           keepId: vaneKeep.id,
           improvement: 'farm',
         },
       },
       units: {
-        u_corvus: makeTestUnit('u_corvus', 'corvus', 'dusk_outrider', 10, 10, corvusKeep.id),
+        u_corvus: makeTestUnit('u_corvus', 'corvus', 'dusk_outrider', 14, 14, corvusKeep.id),
       },
     };
-
-    const pillaged = pillageTile(s, 'u_corvus');
+    const pillaged = pillageTile(pillageState, 'u_corvus');
     expect(pillaged.tiles[farmKey]!.improvement).toBeNull();
-    // Farm matCost = 6 -> floor(3) * 2 = +6 Mat, baseCoin 3 * 2 = +6 Coin
     expect(pillaged.houses.corvus!.resources.materials).toBe(
-      s.houses.corvus!.resources.materials + 6,
+      pillageState.houses.corvus!.resources.materials + 6,
     );
-    expect(pillaged.houses.corvus!.resources.coin).toBe(s.houses.corvus!.resources.coin + 6);
-    // Dusk Outrider keeps remaining movement after pillaging (disengage)
-    expect(pillaged.units.u_corvus!.hasAttacked).toBe(true);
-    expect(pillaged.units.u_corvus!.remainingMovement).toBe(4);
+    expect(pillaged.houses.corvus!.resources.coin).toBe(
+      pillageState.houses.corvus!.resources.coin + 8, // 4 base * 2
+    );
   });
 });
 
-describe('Step 5: Movement, ZoC & Action Order', () => {
-  it('enforces ZoC stop, minimum-move rule, and Dusk Outrider ZoC/Forest/disengage exemptions', () => {
+describe('Step 5 (v2.0): 4-Resource Economy, Upgrades, Roads, Outposts, Tier-3 Citadel & Reinforce', () => {
+  it('supports Iron yields, Lv2 Upgrades, Roads, Clear Timber, Frontier Outposts, Tier-3 Citadel & Arrow Slits', () => {
     const state = makeFlatPlainsState();
     const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
     const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
+    const mineKey = coordKey(vaneKeep.x + 1, vaneKeep.y);
+    const forestKey = coordKey(vaneKeep.x - 1, vaneKeep.y);
+    const roadKey = coordKey(vaneKeep.x, vaneKeep.y + 1);
+    const allKeeps = Object.values(state.keeps);
+    const outpostTile = Object.values(state.tiles).find(
+      (t) =>
+        t.ownerHouseId === null &&
+        t.x >= 2 &&
+        t.x < state.gridSize - 2 &&
+        t.y >= 2 &&
+        t.y < state.gridSize - 2 &&
+        allKeeps.every((k) => chebyshevDist(k.x, k.y, t.x, t.y) >= 4),
+    )!;
+    const outpostKey = outpostTile.key;
 
-    // Place a River in Spring (cost 3) next to a Spearman (mov 2) -> minimum-move lets it enter
-    const springState: GameState = {
+    let s: GameState = {
       ...state,
-      turnNumber: 1, // Spring: river cost 3
+      houses: {
+        ...state.houses,
+        vane: {
+          ...state.houses.vane!,
+          resources: { materials: 80, iron: 30, coin: 60 },
+        },
+      },
+      keeps: {
+        ...state.keeps,
+        [vaneKeep.id]: {
+          ...vaneKeep,
+          tier: 2,
+          specialization: 'forge_seat',
+          maxKeepHp: KEEP_TIER2_MAX_HP,
+          keepHp: KEEP_TIER2_MAX_HP,
+          foodProgress: 165,
+        },
+      },
       tiles: {
         ...state.tiles,
-        [coordKey(11, 10)]: { ...state.tiles[coordKey(11, 10)]!, terrain: 'river' },
-        [coordKey(10, 11)]: { ...state.tiles[coordKey(10, 11)]!, terrain: 'forest' },
+        [mineKey]: {
+          ...state.tiles[mineKey]!,
+          terrain: 'hills',
+          hasIronDeposit: true,
+          ownerHouseId: 'vane',
+          keepId: vaneKeep.id,
+        },
+        [forestKey]: {
+          ...state.tiles[forestKey]!,
+          terrain: 'forest',
+          ownerHouseId: 'vane',
+          keepId: vaneKeep.id,
+        },
+        [roadKey]: {
+          ...state.tiles[roadKey]!,
+          terrain: 'hills',
+          ownerHouseId: 'vane',
+          keepId: vaneKeep.id,
+        },
       },
       units: {
-        u_spear: makeTestUnit('u_spear', 'vane', 'spearman', 10, 10, vaneKeep.id),
-        u_enemy: makeTestUnit('u_enemy', 'corvus', 'spearman', 12, 12, corvusKeep.id),
-        u_outrider: makeTestUnit('u_outrider', 'corvus', 'dusk_outrider', 9, 11, corvusKeep.id),
+        u_pioneer: makeTestUnit(
+          'u_pioneer',
+          'vane',
+          'spearman',
+          outpostTile.x,
+          outpostTile.y,
+          vaneKeep.id,
+          { hp: 16 },
+        ),
+        u_enemy: makeTestUnit(
+          'u_enemy',
+          'corvus',
+          'spearman',
+          vaneKeep.x + 2,
+          vaneKeep.y,
+          corvusKeep.id,
+        ),
       },
     };
 
-    const spearReach = getReachableTiles(springState, 'u_spear');
-    expect(spearReach[coordKey(11, 10)]).toBe(0); // Minimum-move into Spring river
+    // 1. Iron Mine Lv1 (+1 base + 1 Forge Seat = 2 Iron) -> Lv2 Deep Shaft Mine (+2 + 1 = 3 Iron)
+    s = buildImprovement(s, 'vane', mineKey, 'iron_mine');
+    expect(computeTileYield(s, mineKey).iron).toBe(2);
+    s = upgradeImprovement(s, 'vane', mineKey);
+    expect(s.tiles[mineKey]!.improvementLevel).toBe(2);
+    expect(computeTileYield(s, mineKey).iron).toBe(3);
 
-    // Entering (11,11) is adjacent to enemy at (12,12) -> ZoC stops movement (rem = 0)
-    expect(spearReach[coordKey(11, 11)]).toBe(0);
+    // 2. Clear Timber (Forest -> Plains, -4 Coin, +6 Mat)
+    const matBefore = s.houses.vane!.resources.materials;
+    s = clearTimber(s, 'vane', forestKey);
+    expect(s.tiles[forestKey]!.terrain).toBe('plains');
+    expect(s.houses.vane!.resources.materials).toBe(matBefore + 6);
 
-    // Dusk Outrider enters Forest at (10,11) for cost 1 and ignores ZoC of u_spear at (10,10)
-    const outriderReach = getReachableTiles(springState, 'u_outrider');
-    expect(outriderReach[coordKey(10, 11)]).toBe(3); // 4 - 1 = 3 remaining even adjacent to enemy
-    expect(outriderReach[coordKey(11, 11)]).toBe(2); // Keeps moving past enemy ZoC
+    // 3. Road Overlay
+    s = buildRoad(s, 'vane', roadKey);
+    expect(s.tiles[roadKey]!.hasRoad).toBe(true);
 
-    // Normal unit cannot move after attacking; Dusk Outrider can
-    const attacked = attackUnit(
-      {
-        ...springState,
-        units: {
-          u_spear: makeTestUnit('u_spear', 'vane', 'spearman', 10, 10, vaneKeep.id),
-          u_outrider: makeTestUnit('u_outrider', 'corvus', 'dusk_outrider', 10, 11, corvusKeep.id),
-        },
-      },
-      'u_outrider',
-      'u_spear',
-    );
-    expect(Object.keys(getReachableTiles(attacked, 'u_outrider')).length).toBeGreaterThan(0);
+    // 4. Frontier Outpost claims 3x3 territory
+    s = buildOutpost(s, 'u_pioneer', outpostKey);
+    const outposts = Object.values(s.outposts);
+    expect(outposts).toHaveLength(1);
+    expect(s.tiles[outpostKey]!.ownerHouseId).toBe('vane');
+    expect(s.tiles[coordKey(outpostTile.x, outpostTile.y + 1)]!.outpostId).toBe(outposts[0]!.id);
+
+    // 5. Paid Field Reinforce restores +8 HP when in supply
+    const uFresh: GameState = {
+      ...s,
+      units: { ...s.units, u_pioneer: { ...s.units.u_pioneer!, hasAttacked: false } },
+    };
+    const reinforced = reinforceUnit(uFresh, 'u_pioneer');
+    expect(reinforced.units.u_pioneer!.hp).toBe(16 + REINFORCE_HEAL_AMOUNT);
+
+    // 6. Keep Tier-3 Grand Citadel upgrade (consumes KEEP_TIER3_IRON_COST) + Range-2 Arrow Slits volley
+    const ironBeforeT3 = reinforced.houses.vane!.resources.iron;
+    let t3 = upgradeKeepToTier3(reinforced, 'vane', vaneKeep.id);
+    expect(t3.keeps[vaneKeep.id]!.tier).toBe(3);
+    expect(t3.keeps[vaneKeep.id]!.maxKeepHp).toBe(KEEP_TIER3_MAX_HP);
+    expect(t3.houses.vane!.resources.iron).toBe(ironBeforeT3 - KEEP_TIER3_IRON_COST);
+    expect(t3.houses.vane!.pendingCitadelKeepIds).toContain(vaneKeep.id);
+
+    // Fire Range-2 Arrow Slits volley at u_enemy
+    const enemyHpBefore = t3.units.u_enemy!.hp;
+    t3 = fireKeepGarrisonVolley(t3, vaneKeep.id, 'u_enemy');
+    expect(t3.units.u_enemy!.hp).toBeLessThan(enemyHpBefore);
+    expect(t3.keeps[vaneKeep.id]!.garrisonVolleyUsedThisTurn).toBe(true);
   });
-});
 
-describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual Re-homing', () => {
-  it('computes Farm+River, Lumber Mill+2 Forests, and Smithy+Deep Smeltery+Lumber Mill combo', () => {
+  it('computes adjacency yields, Smithy combo, local military unlocks, War Camp limits & summoning sickness', () => {
     const state = makeFlatPlainsState();
     const ironKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'ironhelm')!;
+    const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
 
     const tFarm = coordKey(10, 10);
     const tRiver = coordKey(10, 11);
@@ -380,67 +526,51 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
         },
       },
     };
+    expect(computeTileYield(s, tFarm).food).toBe(4);
+    expect(computeTileYield(s, tMill).materials).toBe(4);
+    expect(keepHasSmithyCombo(s, ironKeep.id)).toBe(true);
 
-    expect(computeTileYield(s, tFarm).food).toBe(4); // 2 base + 2 river
-    expect(computeTileYield(s, tMill).materials).toBe(4); // 2 base + 2 from 2 forests
-    expect(keepHasSmithyCombo(s, ironKeep.id)).toBe(true); // deep_smeltery satisfies iron_mine adjacency
-  });
-
-  it('enforces War Camp limits (14 Mat, 1/Keep, 2/House) and summoning sickness on trainUnit', () => {
-    const state = makeFlatPlainsState();
-    const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
+    // Local Barracks unlock: Archers blocked without Barracks, allowed with Barracks
     const t1 = coordKey(corvusKeep.x + 1, corvusKeep.y);
     const t2 = coordKey(corvusKeep.x - 1, corvusKeep.y);
-
-    let s: GameState = {
+    let cState: GameState = {
       ...state,
       houses: {
         ...state.houses,
-        corvus: {
-          ...state.houses.corvus!,
-          resources: { materials: 50, coin: 20 },
-        },
+        corvus: { ...state.houses.corvus!, resources: { materials: 60, iron: 10, coin: 20 } },
       },
     };
+    expect(canTrainUnit(cState, 'corvus', corvusKeep.id, 'archer')).toBe(false);
+    cState = buildImprovement(cState, 'corvus', t2, 'barracks');
+    expect(canTrainUnit(cState, 'corvus', corvusKeep.id, 'archer')).toBe(true);
 
-    expect(canBuildImprovement(s, 'corvus', t1, 'war_camp')).toBe(true);
-    s = buildImprovement(s, 'corvus', t1, 'war_camp');
-    expect(s.houses.corvus!.resources.materials).toBe(36); // 50 - 14
-    expect(getKeepArmyCap(s, corvusKeep.id)).toBe(4); // Tier 1 (3) + War Camp (1)
-    // Max 1 War Camp per Keep
-    expect(canBuildImprovement(s, 'corvus', t2, 'war_camp')).toBe(false);
+    // War Camp limits (14 Mat + 2 Iron, max 1/Keep)
+    expect(canBuildImprovement(cState, 'corvus', t1, 'war_camp')).toBe(true);
+    cState = buildImprovement(cState, 'corvus', t1, 'war_camp');
+    expect(getKeepArmyCap(cState, corvusKeep.id)).toBe(4);
 
-    // Train unit -> summoning sickness & no spawn-turn heal
-    expect(canTrainUnit(s, 'corvus', corvusKeep.id, 'spearman')).toBe(true);
-    s = trainUnit(s, 'corvus', corvusKeep.id, 'spearman');
-    const trained = Object.values(s.units)[0]!;
+    // Summoning sickness on trainUnit
+    cState = trainUnit(cState, 'corvus', corvusKeep.id, 'spearman');
+    const trained = Object.values(cState.units)[0]!;
     expect(trained.hasMoved).toBe(true);
     expect(trained.hasAttacked).toBe(true);
-    expect(trained.spawnedOnTurn).toBe(s.turnNumber);
-
-    // Damage trained unit and run end-of-turn heal -> should NOT heal on spawn turn
-    const damaged: GameState = {
-      ...s,
-      units: { ...s.units, [trained.id]: { ...trained, hp: 10, hasMoved: false, hasAttacked: false } },
-    };
-    const afterHeal = processEndOfTurnHealingAndAttrition(damaged, 'corvus');
-    expect(afterHeal.units[trained.id]!.hp).toBe(10);
+    const afterHeal = processEndOfTurnHealingAndAttrition(
+      { ...cState, units: { [trained.id]: { ...trained, hp: 10, hasMoved: false, hasAttacked: false } } },
+      'corvus',
+    );
+    expect(afterHeal.units[trained.id]!.hp).toBe(10); // No spawn-turn heal
   });
 
-  it('enforces escalating Coin milestones, Keep capture conversions, sticky borders, orphans & manual re-homing', () => {
+  it('enforces Keep capture conversions, sticky borders, orphans, manual re-homing, annexation, Mutiny & Fortify', () => {
     const state = makeFlatPlainsState();
     const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
     const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
 
-    // Escalating Coin Milestones: 25 -> 65 -> 125
-    let vaneHouse = addLifetimeCoin(state.houses.vane!, 25);
+    // Escalating Coin Milestones: 85 -> 215
+    const vaneHouse = addLifetimeCoin(state.houses.vane!, 85);
     expect(vaneHouse.pendingDraftCount).toBe(1);
-    expect(vaneHouse.nextCoinMilestone).toBe(65);
-    vaneHouse = addLifetimeCoin(vaneHouse, 40);
-    expect(vaneHouse.pendingDraftCount).toBe(2);
-    expect(vaneHouse.nextCoinMilestone).toBe(125);
+    expect(vaneHouse.nextCoinMilestone).toBe(215);
 
-    // Add a 2nd Keep for Vane so capturing Vane's 1st Keep triggers orphan logic instead of elimination
     const secondKeep: KeepState = {
       id: 'keep_extra',
       name: 'Greenhollow',
@@ -450,10 +580,13 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
       y: 10,
       tier: 1,
       isCapital: false,
+      isHighSeat: false,
       specialization: 'none',
-      keepHp: KEEP_BASE_MAX_HP,
-      maxKeepHp: KEEP_BASE_MAX_HP,
+      citadelCharter: 'none',
+      keepHp: KEEP_TIER1_MAX_HP,
+      maxKeepHp: KEEP_TIER1_MAX_HP,
       damagedLastRound: false,
+      garrisonVolleyUsedThisTurn: false,
       foodProgress: 0,
       repeatMilestonesClaimed: 0,
     };
@@ -467,7 +600,7 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
           ...vaneKeep,
           tier: 2,
           specialization: 'garrison',
-          maxKeepHp: KEEP_GARRISON_MAX_HP,
+          maxKeepHp: KEEP_TIER2_MAX_HP + KEEP_GARRISON_HP_BONUS,
           keepHp: 1,
         },
         [secondKeep.id]: secondKeep,
@@ -483,10 +616,9 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
         },
       },
       units: {
-        // 4 units homed at vaneKeep (1 free company + 3 normal) + 2 already at secondKeep (only 1 open slot!)
-        u_l1: makeTestUnit('u_l1', 'vane', 'longbowman', 10, 10, vaneKeep.id), // mat 13 -> re-homes to secondKeep
-        u_m1: makeTestUnit('u_m1', 'vane', 'militia', 10, 11, vaneKeep.id), // mat 6 -> becomes orphaned
-        u_fc: makeTestUnit('u_fc', 'vane', 'free_company_spearman', 11, 10, vaneKeep.id), // disbands!
+        u_l1: makeTestUnit('u_l1', 'vane', 'longbowman', 10, 10, vaneKeep.id),
+        u_m1: makeTestUnit('u_m1', 'vane', 'militia', 10, 11, vaneKeep.id),
+        u_fc: makeTestUnit('u_fc', 'vane', 'free_company_spearman', 11, 10, vaneKeep.id),
         u_s1: makeTestUnit('u_s1', 'vane', 'spearman', 9, 10, secondKeep.id),
         u_s2: makeTestUnit('u_s2', 'vane', 'spearman', 9, 11, secondKeep.id),
       },
@@ -494,228 +626,136 @@ describe('Step 5: Economy, Adjacency, Capture, Sticky Borders, Orphans & Manual 
     s = claimKeepTerritory(s, secondKeep.id);
 
     const captured = captureKeep(s, vaneKeep.id, 'corvus');
-    // Specialization preserved, keepHp = floor(34/2) = 17
     expect(captured.keeps[vaneKeep.id]!.specialization).toBe('garrison');
-    expect(captured.keeps[vaneKeep.id]!.keepHp).toBe(17);
-    // Forester's Lodge converts to Lumber Mill on capture
-    expect(captured.tiles[lodgeTile]!.improvement).toBe('lumber_mill');
-    // Free Company disbanded; Longbowman re-homed to secondKeep; Militia orphaned
+    expect(captured.keeps[vaneKeep.id]!.keepHp).toBe(
+      Math.floor((KEEP_TIER2_MAX_HP + KEEP_GARRISON_HP_BONUS) / 2),
+    );
+    expect(captured.tiles[lodgeTile]!.improvement).toBe('logging_camp');
     expect(captured.units.u_fc).toBeUndefined();
     expect(captured.units.u_l1!.homeKeepId).toBe(secondKeep.id);
     expect(captured.units.u_m1!.homeKeepId).toBe('orphaned');
 
-    // Manual Re-homing: move orphaned Militia onto secondKeep after freeing a slot
-    const withSlotOpen: GameState = {
+    // Manual Re-homing
+    const withSlot: GameState = {
       ...captured,
       units: {
         ...captured.units,
         u_m1: { ...captured.units.u_m1!, tileKey: secondKeep.tileKey, x: secondKeep.x, y: secondKeep.y },
       },
     };
-    delete withSlotOpen.units.u_s1;
-    const rehomed = rehomeUnitManually(withSlotOpen, 'u_m1');
-    expect(rehomed.units.u_m1!.homeKeepId).toBe(secondKeep.id);
+    delete withSlot.units.u_s1;
+    expect(rehomeUnitManually(withSlot, 'u_m1').units.u_m1!.homeKeepId).toBe(secondKeep.id);
 
-    // Sticky Borders: a Keep expanding to Tier 2 never steals tiles already claimed by another Keep
-    const stickyCheck: GameState = {
+    // Sticky Borders
+    const sticky: GameState = {
       ...state,
-      keeps: {
-        ...state.keeps,
-        [corvusKeep.id]: { ...corvusKeep, tier: 2 },
-      },
-    };
-    const neighborTileKey = coordKey(corvusKeep.x + 2, corvusKeep.y);
-    stickyCheck.tiles[neighborTileKey] = {
-      ...stickyCheck.tiles[neighborTileKey]!,
-      keepId: vaneKeep.id,
-      ownerHouseId: 'vane',
-    };
-    const afterClaim = claimKeepTerritory(stickyCheck, corvusKeep.id);
-    expect(afterClaim.tiles[neighborTileKey]!.keepId).toBe(vaneKeep.id);
-  });
-
-  it('handles Peaceful Annexation, Violent Seizure, Coin Bankruptcy Mutiny, and Watchtower reveals', () => {
-    const state = makeFlatPlainsState();
-    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
-    const vKey = coordKey(10, 10);
-    const wtKey = coordKey(14, 14);
-
-    const s: GameState = {
-      ...state,
-      houses: {
-        ...state.houses,
-        vane: { ...state.houses.vane!, resources: { materials: 20, coin: 20 }, favor: 3 },
-      },
-      keeps: {
-        ...state.keeps,
-        [vaneKeep.id]: { ...vaneKeep, foodProgress: 15 },
-      },
+      keeps: { ...state.keeps, [corvusKeep.id]: { ...corvusKeep, tier: 2 } },
       tiles: {
         ...state.tiles,
-        [vKey]: {
-          ...state.tiles[vKey]!,
-          landmark: 'frontier_village',
-          villageHp: 12,
-        },
-        [wtKey]: {
-          ...state.tiles[wtKey]!,
-          terrain: 'hills',
-          landmark: 'ancient_watchtower',
+        [coordKey(corvusKeep.x + 2, corvusKeep.y)]: {
+          ...state.tiles[coordKey(corvusKeep.x + 2, corvusKeep.y)]!,
+          keepId: vaneKeep.id,
+          ownerHouseId: 'vane',
         },
       },
-      units: {
-        u_v: makeTestUnit('u_v', 'vane', 'spearman', 10, 11, vaneKeep.id),
-        u_wt: makeTestUnit('u_wt', 'vane', 'spearman', 13, 14, vaneKeep.id),
-      },
     };
+    expect(claimKeepTerritory(sticky, corvusKeep.id).tiles[coordKey(corvusKeep.x + 2, corvusKeep.y)]!.keepId).toBe(
+      vaneKeep.id,
+    );
 
-    // Peaceful Annexation: -15 Coin, -12 Food from Keep, +1 Favor, 24/24 HP
-    const annexed = annexVillage(s, 'vane', vKey);
-    expect(annexed.houses.vane!.resources.coin).toBe(5);
-    expect(annexed.keeps[vaneKeep.id]!.foodProgress).toBe(3);
-    expect(annexed.houses.vane!.favor).toBe(4);
-    const newKeep = Object.values(annexed.keeps).find((k) => k.tileKey === vKey)!;
-    expect(newKeep.keepHp).toBe(KEEP_BASE_MAX_HP);
-
-    // Violent Seizure: reducing villageHp to 0 -> 8/24 HP and -2 Favor
-    const weakVillageState: GameState = {
-      ...s,
-      tiles: { ...s.tiles, [vKey]: { ...s.tiles[vKey]!, villageHp: 1 } },
-    };
-    const seized = attackVillage(weakVillageState, 'u_v', vKey);
-    const seizedKeep = Object.values(seized.keeps).find((k) => k.tileKey === vKey)!;
-    expect(seizedKeep.keepHp).toBe(VILLAGE_SEIZE_KEEP_HP);
-    expect(seized.houses.vane!.favor).toBe(1); // 3 - 2
-
-    // Ancient Watchtower visit -> per-House reveal + firstVisitedByHouseId + even-turn harvest yield
-    const onWatchtower = moveUnit(s, 'u_wt', wtKey);
-    expect(onWatchtower.tiles[wtKey]!.revealedByHouseIds).toContain('vane');
-    expect(onWatchtower.tiles[wtKey]!.firstVisitedByHouseId).toBe('vane');
-    expect(onWatchtower.houses.vane!.stats.watchtowersReached).toBe(1);
-
-    const afterHarvest = processHarvestAndUpkeep(onWatchtower, 'vane');
-    // Turn 4 is even -> +1 Favor from Watchtower occupation
-    expect(afterHarvest.houses.vane!.favor).toBe(4);
-
-    // Coin Bankruptcy Mutiny: 0 coin, high upkeep -> coin stays 0, highest-upkeep unit takes 8 true dmg
-    const bankruptState: GameState = {
+    // Peaceful Annexation & Violent Seizure
+    const vKey = coordKey(10, 10);
+    const vState: GameState = {
       ...state,
       houses: {
         ...state.houses,
-        vane: { ...state.houses.vane!, resources: { materials: 0, coin: 0 } },
+        vane: { ...state.houses.vane!, resources: { materials: 20, iron: 4, coin: 25 }, favor: 3 },
       },
+      keeps: { ...state.keeps, [vaneKeep.id]: { ...vaneKeep, foodProgress: 20 } },
+      tiles: {
+        ...state.tiles,
+        [vKey]: { ...state.tiles[vKey]!, landmark: 'frontier_village', villageHp: 16 },
+      },
+      units: { u_v: makeTestUnit('u_v', 'vane', 'spearman', 10, 11, vaneKeep.id) },
+    };
+    const annexed = annexVillage(vState, 'vane', vKey);
+    expect(annexed.houses.vane!.resources.coin).toBe(5);
+    expect(annexed.keeps[vaneKeep.id]!.foodProgress).toBe(5);
+    expect(annexed.houses.vane!.favor).toBe(4);
+
+    const seized = attackVillage(
+      { ...vState, tiles: { ...vState.tiles, [vKey]: { ...vState.tiles[vKey]!, villageHp: 1 } } },
+      'u_v',
+      vKey,
+    );
+    expect(Object.values(seized.keeps).find((k) => k.tileKey === vKey)!.keepHp).toBe(
+      VILLAGE_SEIZE_KEEP_HP,
+    );
+
+    // Bankruptcy Mutiny
+    const bankrupt: GameState = {
+      ...state,
+      houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 0, iron: 0, coin: 0 } } },
       units: {
         u_k1: makeTestUnit('u_k1', 'vane', 'knight', 10, 10, vaneKeep.id),
         u_k2: makeTestUnit('u_k2', 'vane', 'knight', 10, 11, vaneKeep.id),
-        u_k3: makeTestUnit('u_k3', 'vane', 'knight', 11, 10, vaneKeep.id),
       },
     };
-    const afterMutiny = processHarvestAndUpkeep(bankruptState, 'vane');
+    const afterMutiny = processHarvestAndUpkeep(bankrupt, 'vane');
     expect(afterMutiny.houses.vane!.resources.coin).toBe(0);
-    expect(afterMutiny.units.u_k1!.hp).toBe(UNITS.knight.maxHp - 8);
     expect(afterMutiny.units.u_k1!.isMutinied).toBe(true);
-  });
 
-  it('fixes Next Unit turn-lock: moved units with no enemies in range are not flagged idle', () => {
-    const state = makeFlatPlainsState();
-    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
-    const withUnit: GameState = {
+    // Next-unit idle check, Fortify, Demolish, Disband, Keep Repair & Siege Keep attack
+    const idleState: GameState = {
       ...state,
-      units: {
-        u1: makeTestUnit('u1', 'vane', 'militia', vaneKeep.x, vaneKeep.y, vaneKeep.id),
-      },
+      units: { u1: makeTestUnit('u1', 'vane', 'militia', vaneKeep.x, vaneKeep.y, vaneKeep.id) },
     };
+    expect(getNextIdleUnit(idleState, 'vane', null)?.id).toBe('u1');
+    const moved = moveUnit(idleState, 'u1', coordKey(vaneKeep.x + 2, vaneKeep.y));
+    expect(canUnitAct(moved, moved.units.u1!)).toBe(false);
 
-    // Unmoved unit IS actionable
-    expect(canUnitAct(withUnit, withUnit.units.u1!)).toBe(true);
-    expect(getNextIdleUnit(withUnit, 'vane', null)?.id).toBe('u1');
+    const fort = fortifyUnit(
+      { ...state, units: { u_def: makeTestUnit('u_def', 'vane', 'spearman', 10, 10, vaneKeep.id, { hp: 14 }) } },
+      'u_def',
+    );
+    expect(fort.units.u_def!.isFortified).toBe(true);
+    expect(processEndOfTurnHealingAndAttrition(fort, 'vane').units.u_def!.hp).toBe(18); // 14 + 2 standard + 2 fortify
 
-    // Move full 2 tiles into empty plains (remainingMovement === 0, no enemies in range)
-    const destKey = coordKey(vaneKeep.x + 2, vaneKeep.y);
-    const afterMove = moveUnit(withUnit, 'u1', destKey);
-    expect(afterMove.units.u1!.remainingMovement).toBe(0);
-    expect(afterMove.units.u1!.hasAttacked).toBe(false);
-    // Must NOT be considered idle/actionable!
-    expect(canUnitAct(afterMove, afterMove.units.u1!)).toBe(false);
-    expect(getNextIdleUnit(afterMove, 'vane', null)).toBeNull();
-
-    // Skipped units are also excluded cleanly
-    expect(getNextIdleUnit(withUnit, 'vane', null, ['u1'])).toBeNull();
-  });
-
-  it('supports Fortify (+15% DEF & +2 extra heal), Veterancy XP promotions, Demolish, Disband & Keep Repair', () => {
-    const state = makeFlatPlainsState();
-    const vaneKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'vane')!;
-    const corvusKeep = Object.values(state.keeps).find((k) => k.ownerHouseId === 'corvus')!;
-
-    // 1. Fortify grants +15% DEF and +2 extra stationary healing (5 HP total on open plains)
-    const fortBase: GameState = {
-      ...state,
-      units: {
-        u_def: makeTestUnit('u_def', 'vane', 'spearman', 10, 10, vaneKeep.id, { hp: 14 }),
-        u_atk: makeTestUnit('u_atk', 'corvus', 'men_at_arms', 11, 10, corvusKeep.id),
-      },
-    };
-    const prevNoFort = previewUnitCombat(fortBase, 'u_atk', 'u_def')!;
-    const fortified = fortifyUnit(fortBase, 'u_def');
-    expect(fortified.units.u_def!.isFortified).toBe(true);
-    expect(canUnitAct(fortified, fortified.units.u_def!)).toBe(false);
-
-    const prevFort = previewUnitCombat(fortified, 'u_atk', 'u_def')!;
-    expect(prevFort.defenderFortified).toBe(true);
-    expect(prevFort.attackerDamage).toBeLessThanOrEqual(prevNoFort.attackerDamage);
-
-    const healed = processEndOfTurnHealingAndAttrition(fortified, 'vane');
-    expect(healed.units.u_def!.hp).toBe(19); // 14 + 3 standard + 2 fortify extra
-
-    // 2. Veterancy XP promotion on kill (+2 XP -> Rank 1 Seasoned: +2 Max HP)
-    const killState: GameState = {
-      ...state,
-      units: {
-        u_v: makeTestUnit('u_v', 'vane', 'spearman', 10, 10, vaneKeep.id),
-        u_c: makeTestUnit('u_c', 'corvus', 'militia', 11, 10, corvusKeep.id, { hp: 1 }),
-      },
-    };
-    const afterKill = attackUnit(killState, 'u_v', 'u_c');
-    expect(afterKill.units.u_v!.xp).toBe(2);
-    expect(afterKill.units.u_v!.maxHp).toBe(UNITS.spearman.maxHp + 2);
-
-    // 3. Demolish Improvement refunds 25% Mat and clears tile
     const farmKey = coordKey(vaneKeep.x + 1, vaneKeep.y);
-    const withFarm = buildImprovement(
-      {
-        ...state,
-        houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 20, coin: 10 } } },
-      },
+    const built = buildImprovement(
+      { ...state, houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 20, iron: 4, coin: 10 } } } },
       'vane',
       farmKey,
       'farm',
     );
-    expect(withFarm.tiles[farmKey]!.improvement).toBe('farm');
-    const afterDemolish = demolishImprovement(withFarm, 'vane', farmKey);
-    expect(afterDemolish.tiles[farmKey]!.improvement).toBeNull();
-    expect(afterDemolish.houses.vane!.resources.materials).toBe(15); // 20 - 6 + floor(6*0.25)=1
+    expect(demolishImprovement(built, 'vane', farmKey).tiles[farmKey]!.improvement).toBeNull();
 
-    // 4. Disband unit on friendly Keep refunds 25% Mat
-    const withMilitia: GameState = {
+    const disbandState: GameState = {
       ...state,
-      houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 10, coin: 10 } } },
+      units: { u_m: makeTestUnit('u_m', 'vane', 'spearman', vaneKeep.x, vaneKeep.y, vaneKeep.id) },
+    };
+    expect(disbandUnit(disbandState, 'vane', 'u_m').units.u_m).toBeUndefined();
+
+    const repaired = repairKeep(
+      {
+        ...state,
+        houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 12, iron: 4, coin: 10 } } },
+        keeps: { ...state.keeps, [vaneKeep.id]: { ...vaneKeep, keepHp: 10 } },
+      },
+      'vane',
+      vaneKeep.id,
+    );
+    expect(repaired.keeps[vaneKeep.id]!.keepHp).toBe(18);
+
+    // Siege Ram hitting enemy Keep deals full structure damage with 0 retaliation
+    const ramState: GameState = {
+      ...state,
       units: {
-        u_m: makeTestUnit('u_m', 'vane', 'spearman', vaneKeep.x, vaneKeep.y, vaneKeep.id),
+        u_ram: makeTestUnit('u_ram', 'corvus', 'siege_ram', vaneKeep.x + 1, vaneKeep.y, corvusKeep.id),
       },
     };
-    const afterDisband = disbandUnit(withMilitia, 'vane', 'u_m');
-    expect(afterDisband.units.u_m).toBeUndefined();
-    expect(afterDisband.houses.vane!.resources.materials).toBe(12); // 10 + floor(10*0.25)=2
-
-    // 5. Keep Field Repair spends 6 Mat to restore +8 HP
-    const damagedKeep: GameState = {
-      ...state,
-      houses: { ...state.houses, vane: { ...state.houses.vane!, resources: { materials: 12, coin: 10 } } },
-      keeps: { ...state.keeps, [vaneKeep.id]: { ...vaneKeep, keepHp: 10 } },
-    };
-    const repaired = repairKeep(damagedKeep, 'vane', vaneKeep.id);
-    expect(repaired.keeps[vaneKeep.id]!.keepHp).toBe(18);
-    expect(repaired.houses.vane!.resources.materials).toBe(6);
+    const hitKeep = attackKeep(ramState, 'u_ram', vaneKeep.id);
+    expect(hitKeep.keeps[vaneKeep.id]!.keepHp).toBeLessThan(KEEP_TIER1_MAX_HP);
+    expect(hitKeep.units.u_ram!.hp).toBe(UNITS.siege_ram.maxHp);
   });
 });

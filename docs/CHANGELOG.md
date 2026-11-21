@@ -1,6 +1,28 @@
-Spec Version: 0.3
+Spec Version: 2.0
 
 # Marchlands Changelog
+
+## v2.0 (Grand Frontier Overhaul)
+
+* **Four-Resource Economy (`Iron`):** Added scarce `Iron` resource gating armored/siege units, Stone Walls, Citadels, and paid heavy unit reinforcement (no negative Iron bankruptcy). Added Coin upkeep on advanced/Lv2 buildings, slower free passive healing (`2 HP`) paired with active **Paid Field Reinforce** (`+8 HP`), and **Winter Provisioning** tying Granaries & Food balance to Winter army survival.
+* **Whole-Map Terrain Building, Roads & Outposts:** Added terrain-native improvements for Forest (**Logging Camp** + **Clear Timber**), Hills (**Stone Quarry**, **Highland Pasture**), River (**River Fishery**, **Stone Bridge**), Mountain (**Peak Beacon**), plus local military buildings (**Barracks**, **Siege Workshop**), Level-2 upgrades across all core improvements, **Road overlays**, and **Frontier Outposts** (max `2` per House).
+* **Keep Tier 3 & Citadels:** Expanded Keep progression to Tier 3 (`7×7` sticky borders, `64 HP`, Range-2 Arrow Slits volley, `90 Food + 10 Iron`), added 4th Tier-2 specialization (**Forge Seat**), and added 4 Tier-3 **Citadel Charters** (*War College*, *Grand Exchange*, *Royal Bastion*, *High Armory*).
+* **High-Impact Fortifications:** Made Wall cover additive over terrain (`+20%`/`+30%`), added `-25%` ranged damage reduction, flank immunity, **orthogonal Wall Linking** (diagonal block), `50%` non-siege structure damage penalty + `2` melee spike damage, Watchtower border projection (`7×7` sight, `+1` ranged Range/Atk, Winter shelter), and Stone Bastion end-of-turn volleys.
+* **Deterministic Tech vs. Exclusive Royal Decrees:** Moved baseline buildings and units into deterministic Keep Tiers and local military buildings; redesigned Royal Decrees into **8 Mutually Exclusive Doctrine Pairs (16 bold doctrines)** yielding `6–8` impactful picks per campaign.
+* **Lord-Commanders:** Added 1 unique grounded Marshal per House with 1-tile leadership aura, 4-turn signature Command Skill (including reworked Vane *Warden's Volley*), Levels 1–3 Marshal Traits, and `5`-turn Wounded + Ransom (`+3 Favor, +15 Coin`) loop.
+* **Combat Overhaul & Class Tactical Actions:** Closed the 4-way counter loop (`Ranged → Infantry`, Crossbow `30%` armor-pierce), lowered `COMBAT_DAMAGE_SCALE` to `2.2` for `3–4` hit tactical trades, added River/Hills attack modifiers, **Phalanx Brace**, **Shield Push**, **Lance Charge**, **Ranged Overwatch**, **Trebuchet Deploy/Bombard**, and branching **Battle Honors**.
+* **Grand Scale (`34×34`, `100+` Turns) & Central High Seat:** Defaulted v2.0 to `34×34` (`22×22` & `28×28` presets retained), added the balanced **Central Ruined High Seat**, scaled Dominion/Chronicle victory conditions, and added `src/engine/spatialIndex.ts` for fast `34×34` AI execution.
+
+### v2.0 Headless Simulation Balance Pass (Step 9 Gates — 2026-11-21)
+* **Spatial Index & AI Optimizations (`spatialIndex.ts`, `ai/strategic.ts`, `ai/tactical.ts`, `ai/economy.ts`):** Split `WeakMap` indexes by sub-record (`tiles`, `units`, `keeps`, `outposts`), added static terrain-improvement tables and zero-allocation `computeTileYield` overrides, fixed AI military building priorities (`barracks`, `smithy`, `siege_workshop`) and combined-arms unit training, ordered frontline Siege units after Ranged/Melee/Cavalry so defenders on Keeps are cleared before Rams/Trebuchets strike, fixed whole-empire `defend` locks, removed muster freeze against active Mandate Claimants, and immediately broke Regent's Mandate upon losing any Keep in `captureKeep`.
+* **Economy & Faction Tuning (`constants.ts`, `improvements.ts`, `units.ts`, `economy.ts`):** Capped Ironhelm bare-mountain `deep_smeltery` at `2`/Keep, Aurelia `Grand Customhouse` Favor at `+1`/Keep per 4 turns, Solis `signal_bastion` under per-Keep Watchtower caps, Wall caps at `2/4/6`, Keep Tier-1/2/3 HP at `36/48/64` (`+14` Garrison), `NON_SIEGE_STRUCTURE_DAMAGE_MULT = 0.60`, and tuned `grand` Dominion thresholds (`supremacyKeepShare = 0.48`, `supremacyMinKeeps5 = 11`, `mandateMinFavor = 120`, `mandateMinKeeps = 9`, `mandateMinTier3Citadels = 3`, `mandateHoldTurns = 9`).
+* **All 12/12 Grand (`34×34`) Dominion Gates + 8/8 Chronicle Gates PASSED (`0` invariant violations, `100%` determinism):**
+  * **5-House Dominion Win Rates (25 games):** `vane 24.0%`, `ironhelm 16.0%`, `aurelia 24.0%`, `corvus 24.0%`, `solis 12.0%` (target `12–28%` each).
+  * **Pacing & Victory Mix:** Median length `89` turns (`p10=48, p90=116`, target `85–130`), `0.0%` stalemate (`0/25`, target `< 5%`), `28.0%` Supremacy / `72.0%` Mandate (no type `> 75%`), `28.0%` Mandate break rate (`7/25`, target `> 15%`), `100%` High Seat capture rate.
+  * **Strategic Depth & AI:** Specializations `38.0% / 17.6% / 18.5% / 25.9%` (all `≥ 10%`), `82.04` Siege/game (`12.0` Sapper, `64.0` Ram, `6.04` Trebuchet), median `8` Decrees, AI turn `p95 = 71.5 ms` (`< 250 ms`), focus-fire `55.6%` (`≥ 45%`), piecemeal `1.4%` (`≤ 20%`).
+  * **Chronicle (15 games, Turn 72):** `0` violations, `89.9%` median 1st-to-last score spread (`≥ 25%`), `p95 = 67.5 ms`.
+
+---
 
 ## v0.3
 

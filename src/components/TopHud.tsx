@@ -1,23 +1,22 @@
 /**
- * Marchlands (Spec v0.3) — Mobile Top HUD
+ * Marchlands (Spec v2.0) — Mobile Top HUD (4-Resource + Favor + Keeps/Score)
  *
- * Padded with env(safe-area-inset-top), crisp inline SVG resource icons,
+ * Padded with env(safe-area-inset-top), crisp inline SVG resource icons (Food, Mat, Iron, Coin),
  * tabular-nums counters, Realm Ledger & Crown Council access,
  * active Frontier Event & Mandate banners, and tap-to-inspect popovers.
  */
 
 import type { GameState, HouseId } from '../types/game.ts';
 import {
-  CHRONICLE_TURN_LIMIT,
   FRONTIER_EVENTS,
   HOUSES,
-  MANDATE_HOLD_TURNS,
+  KEEP_TIER3_IRON_COST,
   SEASONS,
   TURNS_PER_SEASON,
 } from '../data/index.ts';
 import { computeHouseNetIncome, getSupremacyStats } from '../engine/queries.ts';
 import { computeScore } from '../engine/scoring.ts';
-import { getSeason, getYear } from '../engine/stateHelpers.ts';
+import { getMapPresetConfig, getSeason, getYear } from '../engine/stateHelpers.ts';
 import { HouseSigilSvg, ResourceIconSvg, SeasonIconSvg } from './svg/HeraldrySvg.tsx';
 import type { UiInteractionState } from './uiTypes.ts';
 
@@ -43,6 +42,7 @@ export function TopHud({
   onOpenMenu,
 }: TopHudProps) {
   const house = state.houses[viewerHouseId]!;
+  const cfg = getMapPresetConfig(state);
   const income = computeHouseNetIncome(state, viewerHouseId);
   const supremacy = getSupremacyStats(state, viewerHouseId);
   const score = computeScore(state, viewerHouseId, false).total;
@@ -61,23 +61,26 @@ export function TopHud({
   const claimantId = state.crown.claimantHouseId;
   const claimantTurnsRem =
     claimantId && state.crown.claimStartTurn !== null
-      ? Math.max(1, MANDATE_HOLD_TURNS - (state.turnNumber - state.crown.claimStartTurn))
+      ? Math.max(1, cfg.mandateHoldTurns - (state.turnNumber - state.crown.claimStartTurn))
       : null;
 
   const coinToDraft = Math.max(0, house.nextCoinMilestone - house.lifetimeCoinEarned);
 
   const popoverText: Record<NonNullable<UiInteractionState['hudPopover']>, string> = {
-    food: 'Food: Total per-turn Food across all Keeps. Each Keep fills its own growth bar (Tier 1 -> Tier 2 5x5 + Specialization + Decree) and pays Peaceful Annexations.',
-    materials: 'Materials: Builds tile improvements, fortifications, Keep wall repairs (6M), and trains units.',
-    coin: `Coin: Pays elite upkeep (${income.upkeep}/t). Lifetime Coin earned: ${house.lifetimeCoinEarned}/${house.nextCoinMilestone} (${coinToDraft} more Coin triggers your next Royal Decree Draft!).`,
-    favor: "Royal Favor: Earned from Crown Writs, Watchtowers & Events. Spend in Crown Council or hold 30+ Favor with 4+ Keeps for 3 turns to win Regent's Mandate.",
-    keeps: `Keeps: ${supremacy.ownedKeeps}/${supremacy.totalKeeps} (${supremacy.percent}%). Hold >= 65% (min ${supremacy.requiredKeeps}) or eliminate all rivals in Dominion; score highest by Turn 33 in Chronicle.`,
+    food: 'Food: Per-turn harvest across all Keeps. Fills each Keep growth bar (Tier 1 -> Tier 2 5x5 -> Tier 3 7x7 Grand Citadel), provisions troops in Winter, and pays Peaceful Annexations.',
+    materials:
+      'Materials: Builds tile improvements, Level-2 upgrades, Roads, Frontier Outposts, Keep wall repairs (8M), and trains troops.',
+    iron: `Iron: Scarce strategic metal mined from Iron Deposits (+${income.iron}/t). Required for Men-at-Arms, Crossbows, Knights, Siege engines, Smithies, Stone Walls/Bastions, Tier-3 Grand Citadels (${KEEP_TIER3_IRON_COST} Ir), and heavy Field Reinforce.`,
+    coin: `Coin: Pays troop wages (${income.unitUpkeep}/t) & building upkeep (${income.buildingUpkeep}/t). Lifetime Coin: ${house.lifetimeCoinEarned}/${house.nextCoinMilestone} (${coinToDraft} more triggers an Exclusive Doctrine Pair!).`,
+    favor: `Royal Favor: Earned from Crown Writs, High Seat, Watchtowers & Events. Spend in Crown Council or hold ${cfg.mandateMinFavor}+ Favor, ${cfg.mandateMinKeeps}+ Keeps & ${cfg.mandateMinTier3Citadels}+ Tier-3 Citadels for ${cfg.mandateHoldTurns} turns to win Regent's Mandate.`,
+    keeps: `Keeps: ${supremacy.ownedKeeps}/${supremacy.totalKeeps} (${supremacy.percent}%). Hold >= ${Math.round(cfg.supremacyKeepShare * 100)}% (min ${supremacy.requiredKeeps}) or eliminate all rivals in Dominion; score highest by Turn ${state.chronicleLimit} in Chronicle.`,
     season: `Year ${year} • ${seasonDef.name} (${seasonDef.subtitle}). ${turnsLeftInSeason}t until next season & Frontier Event.`,
-    score: 'Realm Score: Live Chronicle score across Territory, Keeps, Decrees, Military, Exploration, Landmarks & Favor. Open Realm Ledger for full standings.',
+    score:
+      'Realm Score: Live Chronicle score across Territory, Lv2 Upgrades, Keeps/Citadels, Outposts, Doctrines, Military, Exploration, Landmarks (incl. High Seat) & Favor.',
     turn:
       state.mode === 'chronicle'
-        ? `Year ${year} • ${seasonDef.name} (${seasonDef.subtitle}). Chronicle Mode ends after Turn ${CHRONICLE_TURN_LIMIT}.`
-        : `Year ${year} • ${seasonDef.name} (${seasonDef.subtitle}). ${turnsLeftInSeason}t until season shift. Auto-saved after every action.`,
+        ? `Year ${year} • ${seasonDef.name} (${seasonDef.subtitle}). Chronicle Mode ends after Turn ${state.chronicleLimit} (${cfg.label}).`
+        : `Year ${year} • ${seasonDef.name} (${seasonDef.subtitle}) • ${cfg.label}. ${turnsLeftInSeason}t until season shift.`,
   };
 
   return (
@@ -93,7 +96,7 @@ export function TopHud({
           >
             <span className="font-serif-march text-xs font-bold text-[#FAF7F0] tabular-nums leading-tight truncate">
               Turn {state.turnNumber}
-              {state.mode === 'chronicle' ? `/${CHRONICLE_TURN_LIMIT}` : ''} • Y{year}
+              {state.mode === 'chronicle' ? `/${state.chronicleLimit}` : ''} • Y{year}
             </span>
             <span className="flex items-center gap-1 text-[10px] text-amber-200/85 leading-tight truncate">
               <SeasonIconSvg season={season} size={11} />
@@ -141,47 +144,62 @@ export function TopHud({
         </div>
       </div>
 
-      {/* Row 2: Resource Pills with Inline SVG Icons */}
-      <div className="mt-1 grid grid-cols-5 gap-1">
+      {/* Row 2: 6 Compact Resource & Status Pills (Food, Mat, Iron, Coin, Favor, Keeps/Score) */}
+      <div className="mt-1 grid grid-cols-6 gap-1">
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'food' ? null : 'food')}
-          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-emerald-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-emerald-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
-          <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-emerald-400">
-            <ResourceIconSvg kind="food" size={11} />
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-emerald-400">
+            <ResourceIconSvg kind="food" size={10} />
             <span>Food</span>
           </span>
-          <span className="text-xs font-bold text-slate-100">+{income.food}/t</span>
+          <span className="text-[11px] font-bold text-slate-100">+{income.food}/t</span>
         </button>
 
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'materials' ? null : 'materials')}
-          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-amber-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-amber-700/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
-          <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-amber-400">
-            <ResourceIconSvg kind="materials" size={11} />
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-amber-400">
+            <ResourceIconSvg kind="materials" size={10} />
             <span>Mat</span>
           </span>
-          <span className="text-xs font-bold text-slate-100">
+          <span className="text-[11px] font-bold text-slate-100">
             {house.resources.materials}
-            <span className="text-[9px] text-amber-300 font-semibold">+{income.materials}</span>
+            <span className="text-[8.5px] text-amber-300 font-semibold">+{income.materials}</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onTogglePopover(activePopover === 'iron' ? null : 'iron')}
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-blue-500/45 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+        >
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-blue-400">
+            <ResourceIconSvg kind="iron" size={10} />
+            <span>Iron</span>
+          </span>
+          <span className="text-[11px] font-bold text-slate-100">
+            {house.resources.iron}
+            <span className="text-[8.5px] text-blue-300 font-semibold">+{income.iron}</span>
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'coin' ? null : 'coin')}
-          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-yellow-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-yellow-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
-          <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-yellow-400">
-            <ResourceIconSvg kind="coin" size={11} />
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-yellow-400">
+            <ResourceIconSvg kind="coin" size={10} />
             <span>Coin</span>
           </span>
-          <span className="text-xs font-bold text-slate-100">
+          <span className="text-[11px] font-bold text-slate-100">
             {house.resources.coin}
-            <span className={`text-[9px] font-semibold ${income.netCoin < 0 ? 'text-red-400' : 'text-yellow-300'}`}>
+            <span className={`text-[8.5px] font-semibold ${income.netCoin < 0 ? 'text-red-400' : 'text-yellow-300'}`}>
               {income.netCoin >= 0 ? `+${income.netCoin}` : income.netCoin}
             </span>
           </span>
@@ -190,27 +208,27 @@ export function TopHud({
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'favor' ? null : 'favor')}
-          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-purple-500/35 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-purple-500/35 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
-          <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-purple-300">
-            <ResourceIconSvg kind="favor" size={11} />
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-purple-300">
+            <ResourceIconSvg kind="favor" size={10} />
             <span>Favor</span>
           </span>
-          <span className="text-xs font-bold text-slate-100">{house.favor}</span>
+          <span className="text-[11px] font-bold text-slate-100">{house.favor}</span>
         </button>
 
         <button
           type="button"
           onClick={() => onTogglePopover(activePopover === 'keeps' ? null : 'keeps')}
-          className="min-h-[44px] px-1 rounded-xl bg-[#16181D]/80 border border-sky-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
+          className="min-h-[44px] px-0.5 rounded-xl bg-[#16181D]/80 border border-sky-600/40 flex flex-col items-center justify-center tabular-nums active:bg-[#252932]"
         >
-          <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase text-sky-300">
-            <ResourceIconSvg kind="keep" size={11} />
+          <span className="flex items-center gap-0.5 text-[8.5px] font-bold uppercase text-sky-300">
+            <ResourceIconSvg kind="keep" size={10} />
             <span>
-              {supremacy.ownedKeeps}/{supremacy.totalKeeps}
+              {supremacy.ownedKeeps}/{supremacy.requiredKeeps}
             </span>
           </span>
-          <span className="text-xs font-bold text-slate-100">{score} pt</span>
+          <span className="text-[11px] font-bold text-slate-100">{score}pt</span>
         </button>
       </div>
 

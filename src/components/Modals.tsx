@@ -1,12 +1,17 @@
 /**
- * Marchlands (Spec v0.3) — Modals & Drawers
+ * Marchlands (Spec v2.0) — Modals & Drawers
  *
- * Aged Vellum (#FAF7F0 / #1C1917 / #B45309) cards for Decrees, Stronghold Charters,
- * Frontier Events, Recap, 3-Card Primer, Crown Writs/Audience, Menu, and Game Over.
+ * Aged Vellum (#FAF7F0 / #1C1917 / #B45309) cards for Exclusive Doctrine Pair Drafts,
+ * Tier-2 Stronghold Specializations, Tier-3 Citadel Charters, Lord-Commander Marshal Traits,
+ * Branching Unit Battle Honors, Frontier Events, Recap, 3-Card Primer, Crown Writs/Audience,
+ * Menu, Realm Ledger, and Game Over.
  */
 
 import { useState } from 'react';
 import type {
+  BattleHonorId,
+  CitadelCharter,
+  CommanderTraitId,
   CoordKey,
   DecreeId,
   GameState,
@@ -17,34 +22,48 @@ import type {
 import {
   AUDIENCE_GRANT_AMOUNT,
   AUDIENCE_GRANT_FAVOR,
+  AUDIENCE_IRON_AMOUNT,
+  AUDIENCE_IRON_FAVOR,
   AUDIENCE_PETITION_FAVOR,
   AUDIENCE_REROLL_FAVOR,
+  BATTLE_HONORS,
+  CITADEL_CHARTER_IDS,
+  CITADEL_CHARTERS,
+  COMMANDER_LEVEL2_XP,
+  COMMANDER_LEVEL3_XP,
+  COMMANDER_TRAITS,
   CROWN_WRITS,
-  DECREE_IDS,
+  DECREE_PAIR_IDS,
+  DECREE_PAIRS,
   DECREES,
   FRONTIER_EVENTS,
   HOUSES,
   KEEP_SPECIALIZATIONS,
-  MANDATE_MIN_FAVOR,
-  MANDATE_MIN_KEEPS,
   SEASONS,
   UNITS,
+  getBattleHonorChoices,
+  getCommanderTraitChoicesForLevel,
 } from '../data/index.ts';
-import { canPayRegentsTithe } from '../engine/crown.ts';
-import { getEligibleUnownedDecrees } from '../engine/draftAndSpec.ts';
+import { canPayRegentsTithe, getAudienceCost } from '../engine/crown.ts';
 import {
   getKeepInspectInfo,
   getSupremacyStats,
   getUnitRankLabel,
 } from '../engine/queries.ts';
 import { computeScore, rankHousesByScore } from '../engine/scoring.ts';
-import { getHouseKeeps, getHouseUnits, getSeason } from '../engine/stateHelpers.ts';
+import {
+  getHouseKeeps,
+  getHouseOutposts,
+  getHouseUnits,
+  getMapPresetConfig,
+  getSeason,
+} from '../engine/stateHelpers.ts';
 import { buildRecap } from '../engine/turn.ts';
-import { HouseSigilSvg, SeasonIconSvg } from './svg/HeraldrySvg.tsx';
+import { HouseSigilSvg, SeasonIconSvg, UnitFigureSvg } from './svg/HeraldrySvg.tsx';
 import { formatRelativeTime, type DiscoveredRuinBanner } from './uiTypes.ts';
 
 // ----------------------------------------------------------------------------
-// 1. Tier-2 Keep Specialization Modal
+// 1. Tier-2 Keep Specialization Modal (4 Specializations incl. Forge Seat)
 // ----------------------------------------------------------------------------
 
 export function SpecializationModal({
@@ -68,19 +87,25 @@ export function SpecializationModal({
   }> = [
     {
       id: 'garrison',
-      effect: 'Cap 4->5 • Keep HP 24->34 (+6 regen) • +10% Def in territory • Palisade cap 5',
+      effect: KEEP_SPECIALIZATIONS.garrison.description,
       flavor:
         'Thickened curtain walls, deep cisterns, and a permanent muster yard turn a frontier keep into an iron gate.',
     },
     {
+      id: 'forge_seat',
+      effect: KEEP_SPECIALIZATIONS.forge_seat.description,
+      flavor:
+        'Trip-hammers and blast furnaces roar day and night, stamping heavy plate and iron-shod rams.',
+    },
+    {
       id: 'market_town',
-      effect: '+4 Coin/turn • Markets +2 Coin • -20% Coin on Peaceful Annexation',
+      effect: KEEP_SPECIALIZATIONS.market_town.description,
       flavor:
         'Chartered stalls and toll-scales draw river merchants from across the southern shires.',
     },
     {
       id: 'granary_seat',
-      effect: '+2 Food/turn • Farms +1 Food • Repeat-milestone threshold 36->28 Food',
+      effect: KEEP_SPECIALIZATIONS.granary_seat.description,
       flavor:
         'Stone-lined cellars and salted stores keep the surrounding hamlets fed through the longest frost.',
     },
@@ -90,12 +115,14 @@ export function SpecializationModal({
     <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
       <div className="w-full max-w-md rounded-2xl bg-[#FAF7F0] text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
         <div>
-          <h2 className="font-serif-march text-xl font-bold text-[#1C1917]">
-            Charter Your Stronghold
+          <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
+            Tier-2 Stronghold Charter
+          </span>
+          <h2 className="font-serif-march text-xl font-bold text-[#1C1917] mt-1">
+            Charter {keep.name}
           </h2>
           <p className="text-xs text-stone-700 mt-1">
-            {keep.name} has grown to a Tier-2 Stronghold. Choose its permanent charter before
-            drafting a Royal Decree.
+            {keep.name} has expanded to a 5×5 Tier-2 Stronghold. Choose its permanent charter.
           </p>
         </div>
 
@@ -121,7 +148,190 @@ export function SpecializationModal({
 }
 
 // ----------------------------------------------------------------------------
-// 2. Royal Decree Draft Modal (1-of-3 + Royal Reroll)
+// 1b. Tier-3 Grand Citadel Charter Modal
+// ----------------------------------------------------------------------------
+
+export function CitadelCharterModal({
+  state,
+  viewerHouseId,
+  onSelect,
+}: {
+  readonly state: GameState;
+  readonly viewerHouseId: HouseId;
+  readonly onSelect: (keepId: string, charter: Exclude<CitadelCharter, 'none'>) => void;
+}) {
+  const house = state.houses[viewerHouseId];
+  const keepId = house?.pendingCitadelKeepIds[0];
+  const keep = keepId ? state.keeps[keepId] : null;
+  if (!keep) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
+      <div className="w-full max-w-md rounded-2xl bg-[#FAF7F0] text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
+        <div>
+          <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
+            Tier-3 Grand Citadel Charter
+          </span>
+          <h2 className="font-serif-march text-xl font-bold text-[#1C1917] mt-1">
+            Crown {keep.name}
+          </h2>
+          <p className="text-xs text-stone-700 mt-1">
+            {keep.name} now towers as a 7×7 Tier-3 Grand Citadel with Range-2 Arrow Slits. Choose its
+            supreme Citadel Charter.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {CITADEL_CHARTER_IDS.map((cid) => {
+            const c = CITADEL_CHARTERS[cid];
+            return (
+              <button
+                key={cid}
+                type="button"
+                onClick={() => onSelect(keep.id, cid)}
+                className="touch-target w-full text-left p-3 rounded-xl bg-white border border-stone-300 hover:border-[#B45309] active:bg-amber-50 transition"
+              >
+                <div className="font-serif-march text-sm font-bold text-[#B45309]">{c.name}</div>
+                <div className="text-xs font-semibold text-stone-800 mt-0.5">{c.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 1c. Lord-Commander Marshal Trait Modal (Levels 2 & 3)
+// ----------------------------------------------------------------------------
+
+export function CommanderTraitModal({
+  state,
+  viewerHouseId,
+  onSelect,
+}: {
+  readonly state: GameState;
+  readonly viewerHouseId: HouseId;
+  readonly onSelect: (traitId: CommanderTraitId) => void;
+}) {
+  const house = state.houses[viewerHouseId];
+  const cmd = state.commanders[viewerHouseId];
+  if (!house || !cmd || !house.pendingCommanderTrait) return null;
+
+  const nextSlot = (cmd.traits.length + 2) as 2 | 3;
+  if (nextSlot > 3) return null;
+  const choices = getCommanderTraitChoicesForLevel(nextSlot);
+  const houseDef = HOUSES[viewerHouseId];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
+      <div className="w-full max-w-md rounded-2xl bg-[#FAF7F0] text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
+        <div className="flex items-center gap-2.5">
+          <HouseSigilSvg houseId={viewerHouseId} size={34} />
+          <div>
+            <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
+              Marshal Promotion — Level {nextSlot}
+            </span>
+            <h2 className="font-serif-march text-xl font-bold text-[#1C1917]">
+              {houseDef.commanderName}
+            </h2>
+          </div>
+        </div>
+        <p className="text-xs text-stone-700">
+          Your Lord-Commander has distinguished themselves on the field. Choose a permanent Marshal
+          Trait:
+        </p>
+
+        <div className="space-y-2">
+          {choices.map((tid) => {
+            const t = COMMANDER_TRAITS[tid];
+            return (
+              <button
+                key={tid}
+                type="button"
+                onClick={() => onSelect(tid)}
+                className="touch-target w-full text-left p-3 rounded-xl bg-white border border-stone-300 hover:border-[#B45309] active:bg-amber-50 transition"
+              >
+                <div className="font-serif-march text-sm font-bold text-[#B45309]">{t.title}</div>
+                <div className="text-xs font-semibold text-stone-800 mt-0.5">{t.effectText}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 1d. Branching Unit Battle Honor Modal (Rank 1 & Rank 2)
+// ----------------------------------------------------------------------------
+
+export function BattleHonorModal({
+  state,
+  viewerHouseId,
+  onSelect,
+}: {
+  readonly state: GameState;
+  readonly viewerHouseId: HouseId;
+  readonly onSelect: (unitId: string, honorId: BattleHonorId) => void;
+}) {
+  const house = state.houses[viewerHouseId];
+  const unitId = house?.pendingHonorUnitIds[0];
+  const unit = unitId ? state.units[unitId] : null;
+  if (!unit) return null;
+
+  const def = UNITS[unit.typeId];
+  if (def.unitClass === 'commander') return null;
+  const targetRank = (unit.battleHonors.length + 1) as 1 | 2;
+  const choices = getBattleHonorChoices(def.unitClass, targetRank);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
+      <div className="w-full max-w-md rounded-2xl bg-[#FAF7F0] text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-11 h-11 rounded-xl bg-[#EAE3D2] border border-[#C7BEA8] flex items-center justify-center shrink-0">
+            <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+              <UnitFigureSvg unitId={unit.typeId} houseId={viewerHouseId} />
+            </svg>
+          </div>
+          <div>
+            <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
+              Rank {targetRank} Battle Honor ({targetRank === 1 ? 'Seasoned' : 'Veteran'})
+            </span>
+            <h2 className="font-serif-march text-xl font-bold text-[#1C1917]">{def.name}</h2>
+          </div>
+        </div>
+        <p className="text-xs text-stone-700">
+          Bestow a permanent Battle Honor upon this veteran company:
+        </p>
+
+        <div className="space-y-2">
+          {choices.map((hid) => {
+            const h = BATTLE_HONORS[hid];
+            return (
+              <button
+                key={hid}
+                type="button"
+                onClick={() => onSelect(unit.id, hid)}
+                className="touch-target w-full text-left p-3 rounded-xl bg-white border border-stone-300 hover:border-[#B45309] active:bg-amber-50 transition"
+              >
+                <div className="font-serif-march text-sm font-bold text-[#B45309]">
+                  ★ {h.title}
+                </div>
+                <div className="text-xs font-semibold text-stone-800 mt-0.5">{h.effectText}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 2. Mutually Exclusive Royal Doctrine Pair Draft Modal (A vs B + Royal Reroll)
 // ----------------------------------------------------------------------------
 
 export function DraftModal({
@@ -139,18 +349,25 @@ export function DraftModal({
   const choices = state.pendingDraftChoices;
   if (!house || !choices || choices.length === 0) return null;
 
-  const canReroll = !house.audienceUsedThisTurn && house.favor >= AUDIENCE_REROLL_FAVOR;
+  const pairDef = DECREES[choices[0]!] ? DECREE_PAIRS[DECREES[choices[0]!].pairId] : null;
+  const rerollCost = getAudienceCost(house, AUDIENCE_REROLL_FAVOR);
+  const canReroll = !house.audienceUsedThisTurn && house.favor >= rerollCost;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
       <div className="w-full max-w-md rounded-2xl bg-[#FAF7F0] text-[#1C1917] border-2 border-[#B45309] p-4 shadow-2xl space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="font-serif-march text-xl font-bold text-[#1C1917]">
-              Royal Decree Draft
+            <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
+              {pairDef ? pairDef.theme : 'Exclusive Doctrine Pair'}
+            </span>
+            <h2 className="font-serif-march text-xl font-bold text-[#1C1917] mt-0.5">
+              Royal Doctrine Choice
             </h2>
             <p className="text-xs text-stone-700 mt-0.5">
-              Enact 1 of 3 decrees ({house.pendingDraftCount} remaining).
+              Enact 1 doctrine. Its opposite is <strong>permanently locked</strong> for the rest of
+              this campaign ({house.pendingDraftCount} draft{house.pendingDraftCount > 1 ? 's' : ''}{' '}
+              queued).
             </p>
           </div>
           <button
@@ -159,30 +376,36 @@ export function DraftModal({
             onClick={onRoyalReroll}
             className="touch-target shrink-0 px-3 rounded-lg bg-[#B45309] disabled:bg-stone-300 disabled:text-stone-500 text-white text-xs font-bold"
           >
-            Reroll ({AUDIENCE_REROLL_FAVOR}F)
+            Draw New Pair ({rerollCost}F)
           </button>
         </div>
 
-        <div className="space-y-2">
-          {choices.map((id) => {
+        <div className="space-y-2.5">
+          {choices.map((id, idx) => {
             const d = DECREES[id];
+            const opposite = DECREES[d.oppositeId];
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => onSelectDecree(id)}
-                className="touch-target w-full text-left p-3 rounded-xl bg-white border border-stone-300 hover:border-[#B45309] active:bg-amber-50 transition"
+                className="touch-target w-full text-left p-3 rounded-xl bg-white border-2 border-stone-300 hover:border-[#B45309] active:bg-amber-50 transition space-y-1"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-serif-march text-sm font-bold text-[#1C1917]">
-                    {d.title}
+                    Option {idx === 0 ? 'A' : 'B'}: {d.title}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-amber-100 text-[#B45309] text-[10px] font-bold uppercase">
-                    {d.category}
+                    {DECREE_PAIRS[d.pairId].theme}
                   </span>
                 </div>
-                <p className="text-xs font-semibold text-stone-800 mt-1">{d.effectText}</p>
-                <p className="text-[11px] italic text-stone-600 mt-0.5">{d.flavor}</p>
+                <p className="text-xs font-semibold text-stone-800">{d.effectText}</p>
+                <p className="text-[11px] italic text-stone-600">{d.flavor}</p>
+                <div className="pt-1">
+                  <span className="inline-block px-2 py-0.5 rounded bg-red-100 border border-red-300 text-red-800 text-[10px] font-bold">
+                    ✕ Permanently Locks: {opposite.title}
+                  </span>
+                </div>
               </button>
             );
           })}
@@ -199,11 +422,14 @@ export function DraftModal({
 const OPTION_LABELS: Record<string, string> = {
   pay_coin: 'Pay Crown Levy (Coin)',
   lose_favor: 'Refuse Levy (-2 Favor)',
-  hire: 'Hire Free Company (15 Coin)',
+  hire: 'Hire Free Company (20 Coin)',
   decline: 'Decline Offer',
-  host: 'Host Tournament (10 Coin -> +2 Favor)',
+  host: 'Host Tournament (12 Coin -> +2 Favor)',
+  enter: 'Enter Tournament (12 Coin -> +2 Favor)',
   pay_wages: 'Pay Emergency Wages (10 Coin)',
+  pay_bonus: 'Pay Bonus Wages (10 Coin)',
   suffer_desertion: 'Endure Desertion (-6 HP)',
+  suffer_damage: 'Endure Desertion (-6 HP)',
 };
 
 export function EventModal({
@@ -247,7 +473,7 @@ export function EventModal({
 }
 
 // ----------------------------------------------------------------------------
-// 4. Crown Writs & Audience Drawer
+// 4. Crown Writs & Audience Drawer (Includes Emergency Iron Shipment & v2.0 Mandate)
 // ----------------------------------------------------------------------------
 
 export function CrownDrawer({
@@ -263,12 +489,18 @@ export function CrownDrawer({
   readonly onClose: () => void;
   readonly onPayTithe: () => void;
   readonly onPetitionCharter: () => void;
-  readonly onCrownGrant: (resource: 'materials' | 'coin') => void;
+  readonly onCrownGrant: (resource: 'materials' | 'coin' | 'iron') => void;
 }) {
   const house = state.houses[viewerHouseId]!;
+  const cfg = getMapPresetConfig(state);
   const supremacy = getSupremacyStats(state, viewerHouseId);
+  const tier3Count = getHouseKeeps(state, viewerHouseId).filter((k) => k.tier === 3).length;
   const canTithe = canPayRegentsTithe(state, viewerHouseId);
   const audienceAvailable = !house.audienceUsedThisTurn && state.phase === 'player_command';
+
+  const petitionCost = getAudienceCost(house, AUDIENCE_PETITION_FAVOR);
+  const grantCost = getAudienceCost(house, AUDIENCE_GRANT_FAVOR);
+  const ironCost = getAudienceCost(house, AUDIENCE_IRON_FAVOR);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex items-end justify-center">
@@ -279,8 +511,10 @@ export function CrownDrawer({
               Crown Council &amp; Writs
             </h2>
             <p className="text-xs text-slate-300 tabular-nums">
-              Royal Favor: {house.favor} • Regent&apos;s Mandate requires {MANDATE_MIN_FAVOR}+ Favor
-              &amp; {MANDATE_MIN_KEEPS}+ Keeps ({supremacy.ownedKeeps} held)
+              Royal Favor: {house.favor} • Regent&apos;s Mandate requires {cfg.mandateMinFavor}+
+              Favor, {cfg.mandateMinKeeps}+ Keeps ({supremacy.ownedKeeps} held) &amp;{' '}
+              {cfg.mandateMinTier3Citadels}+ Tier-3 Citadels ({tier3Count} held) for{' '}
+              {cfg.mandateHoldTurns} turns
             </p>
           </div>
           <button
@@ -316,6 +550,7 @@ export function CrownDrawer({
                       +{def.rewardFavor} Favor
                       {def.rewardCoin > 0 ? ` • +${def.rewardCoin}C` : ''}
                       {def.rewardMaterials > 0 ? ` • +${def.rewardMaterials}M` : ''}
+                      {def.rewardIron > 0 ? ` • +${def.rewardIron}Ir` : ''}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300">{def.requirementText}</p>
@@ -346,40 +581,51 @@ export function CrownDrawer({
           </h3>
           <button
             type="button"
-            disabled={!audienceAvailable || house.favor < AUDIENCE_PETITION_FAVOR}
+            disabled={!audienceAvailable || house.favor < petitionCost}
             onClick={onPetitionCharter}
             className="touch-target w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
           >
             <div className="text-xs font-bold text-amber-200">
-              Petition a Charter ({AUDIENCE_PETITION_FAVOR} Favor)
+              Petition a Doctrine Charter ({petitionCost} Favor)
             </div>
             <div className="text-[11px] text-slate-300">
-              Queue an immediate Royal Decree Draft.
+              Queue an immediate Exclusive Doctrine Pair Draft.
             </div>
           </button>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
-              disabled={!audienceAvailable || house.favor < AUDIENCE_GRANT_FAVOR}
+              disabled={!audienceAvailable || house.favor < grantCost}
               onClick={() => onCrownGrant('materials')}
-              className="touch-target px-3 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
+              className="touch-target px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
             >
               <div className="text-xs font-bold text-amber-300">
-                Grant +{AUDIENCE_GRANT_AMOUNT} Mat
+                +{AUDIENCE_GRANT_AMOUNT} Mat
               </div>
-              <div className="text-[11px] text-slate-400">{AUDIENCE_GRANT_FAVOR} Favor</div>
+              <div className="text-[11px] text-slate-400">{grantCost} Favor</div>
             </button>
             <button
               type="button"
-              disabled={!audienceAvailable || house.favor < AUDIENCE_GRANT_FAVOR}
+              disabled={!audienceAvailable || house.favor < ironCost}
+              onClick={() => onCrownGrant('iron')}
+              className="touch-target px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
+            >
+              <div className="text-xs font-bold text-sky-300">
+                +{AUDIENCE_IRON_AMOUNT} Iron
+              </div>
+              <div className="text-[11px] text-slate-400">{ironCost} Favor</div>
+            </button>
+            <button
+              type="button"
+              disabled={!audienceAvailable || house.favor < grantCost}
               onClick={() => onCrownGrant('coin')}
-              className="touch-target px-3 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
+              className="touch-target px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-600 disabled:opacity-45 text-left"
             >
               <div className="text-xs font-bold text-yellow-300">
-                Grant +{AUDIENCE_GRANT_AMOUNT} Coin
+                +{AUDIENCE_GRANT_AMOUNT} Coin
               </div>
-              <div className="text-[11px] text-slate-400">{AUDIENCE_GRANT_FAVOR} Favor</div>
+              <div className="text-[11px] text-slate-400">{grantCost} Favor</div>
             </button>
           </div>
         </div>
@@ -473,27 +719,27 @@ export function RecapModal({
 }
 
 // ----------------------------------------------------------------------------
-// 6. 3-Card Interactive "How to Play" Mobile Primer
+// 6. 3-Card Interactive "How to Play" Mobile Primer (Spec v2.0)
 // ----------------------------------------------------------------------------
 
 const PRIMER_CARDS = [
   {
-    title: 'Carve Your Frontier',
-    headline: 'Build Directly on the Land',
-    body: 'Your Keeps are living territories. Place Farms beside rivers and Lumber Mills beside forests for spatial adjacency bonuses. Fill a Keep Food bar to expand borders from 3x3 to 5x5.',
-    tip: 'Materials build structures & troops • Coin pays upkeep & unlocks Decrees.',
+    title: 'Carve the Grand Frontier',
+    headline: '4 Resources, Roads & Citadels',
+    body: 'Build across every terrain and upgrade improvements to Level 2. Mine Iron to forge elite armor, siege engines, Stone Curtain Walls, and 7×7 Tier-3 Grand Citadels. Lay Roads and found Frontier Outposts to project supply across the 34×34 March.',
+    tip: 'Food grows Keep tiers • Materials & Iron build structures/elites • Coin pays upkeep.',
   },
   {
-    title: 'Command Tight Squads',
-    headline: 'Outsmart, Never Out-Spam',
-    body: 'Each Keep supports only 3 to 4 active units, keeping every skirmish fast and tactical. Use terrain cover and the Counter-Triangle (+40% damage) to shatter larger warbands.',
-    tip: 'Spearmen > Cavalry > Archers & Siege > Spearmen',
+    title: 'Combined Arms & Class Tactics',
+    headline: 'Outsmart with Marshals & Actions',
+    body: 'Lead your warband with your House Lord-Commander (+10% aura & signature skill). Exploit the 4-way counter loop (+35%), Infantry Shield Push, Cavalry Lance Charge, Ranged Overwatch, and Range-3 Siege Trebuchets.',
+    tip: 'Spearmen > Cavalry > Ranged & Siege | Infantry > Spearmen | Ranged > Infantry',
   },
   {
-    title: 'Draft Decrees & Claim the March',
-    headline: 'Adapt to the Wilderness',
-    body: 'Every Keep upgrade and Coin milestone triggers a 1-of-3 Royal Decree Draft. Scout Watchtowers, raid Outlaw Camps, complete Crown Writs, and annex Frontier Villages to rule the March.',
-    tip: "Win by Conquest, Supremacy (65% & 5+ Keeps), Regent's Mandate, or Turn-33 Chronicle Score.",
+    title: 'Exclusive Doctrines & The High Seat',
+    headline: 'Every Choice Carries Weight',
+    body: 'Draft from 8 Mutually Exclusive Royal Doctrine Pairs—enacting one side permanently locks its opposite. Breach the Central Ruined High Seat for prestige, complete Crown Writs, and provision your Keeps before Winter frost.',
+    tip: "Win by Conquest, Supremacy (75% Keeps), Regent's Mandate (60+ Favor & 2+ Tier-3 Citadels), or Chronicle Score.",
   },
 ];
 
@@ -732,12 +978,12 @@ export function GameOverModal({
   const viewerHouse = state.houses[viewerHouseId]!;
   const isVictory = winnerId === viewerHouseId && state.victoryType !== 'defeat';
   const supremacy = getSupremacyStats(state, winnerId);
+  const cfg = getMapPresetConfig(state);
   const rankedHouseIds = rankHousesByScore(state, true);
   const rankings = rankedHouseIds.map((hid) => ({
     houseId: hid,
     score: computeScore(state, hid, true),
   }));
-  const eligibleCount = viewerHouse.decreeIds.length + getEligibleUnownedDecrees(viewerHouse).length;
 
   let bannerTitle = 'THE MARCHLANDS KNEEL';
   let subtitle = `Conquest Victory — Turn ${state.turnNumber}`;
@@ -755,12 +1001,12 @@ export function GameOverModal({
   } else if (state.victoryType === 'mandate') {
     bannerTitle = 'WARDEN BY ROYAL MANDATE';
     subtitle = `Regent's Mandate Victory — Turn ${state.turnNumber}`;
-    narrative = `Holding ${state.houses[winnerId]?.favor ?? 0} Royal Favor and ${supremacy.ownedKeeps} Keeps for three unyielding turns, ${winnerHouse.name} receives the Regent Council's seal.`;
+    narrative = `Holding ${state.houses[winnerId]?.favor ?? 0} Royal Favor, ${supremacy.ownedKeeps} Keeps, and Grand Citadels for ${cfg.mandateHoldTurns} unyielding turns, ${winnerHouse.name} receives the Regent Council's seal.`;
   } else if (state.victoryType === 'score') {
     const topScore = rankings[0]?.score.total ?? 0;
-    bannerTitle = 'CHRONICLE OF THE THREE HARVESTS';
+    bannerTitle = 'CHRONICLE OF THE GRAND MARCH';
     subtitle = `Chronicle Victory — Turn ${state.turnNumber} (${topScore} pts)`;
-    narrative = `When the third autumn closes on Turn 33, ${winnerHouse.name} stands foremost in the Regent's ledger—measured in land, stone, steel, and royal favor.`;
+    narrative = `When the chronicle closes on Turn ${state.chronicleLimit}, ${winnerHouse.name} stands foremost in the Regent's ledger—measured in land, stone, steel, and royal favor.`;
   }
 
   const handleCopySeed = async () => {
@@ -809,15 +1055,15 @@ export function GameOverModal({
             <span className="font-bold">{HOUSES[viewerHouseId].name}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-600">Mode &amp; Difficulty:</span>
+            <span className="text-stone-600">Scale, Mode &amp; Difficulty:</span>
             <span className="font-bold capitalize">
-              {state.mode} • {state.difficulty}
+              {state.gridSize}×{state.gridSize} • {state.mode} • {state.difficulty}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-600">Royal Decrees Enacted:</span>
+            <span className="text-stone-600">Doctrines Enacted:</span>
             <span className="font-bold">
-              {viewerHouse.decreeIds.length} / {eligibleCount}
+              {viewerHouse.decreeIds.length} / {DECREE_PAIR_IDS.length} Pairs
             </span>
           </div>
           <div className="flex items-center justify-between pt-1">
@@ -883,7 +1129,7 @@ export function RelicDiscoveryModal({
 }
 
 // ----------------------------------------------------------------------------
-// 10. Realm Ledger & 25-Decree Codex Drawer (4-Tab Strategic Command View)
+// 10. Realm Ledger & 8-Pair Doctrine Codex Drawer (4-Tab Strategic Command View)
 // ----------------------------------------------------------------------------
 
 type LedgerTab = 'standings' | 'decrees' | 'forces' | 'chronicle';
@@ -902,10 +1148,12 @@ export function RealmLedgerDrawer({
   const [tab, setTab] = useState<LedgerTab>('standings');
   const house = state.houses[viewerHouseId]!;
   const houseDef = HOUSES[viewerHouseId];
+  const commander = state.commanders[viewerHouseId];
   const season = getSeason(state.turnNumber);
   const seasonDef = SEASONS[season];
   const rankedHouseIds = rankHousesByScore(state, false);
   const ownKeeps = getHouseKeeps(state, viewerHouseId);
+  const ownOutposts = getHouseOutposts(state, viewerHouseId);
   const ownUnits = getHouseUnits(state, viewerHouseId);
   const fog = state.fog[viewerHouseId] ?? {};
 
@@ -933,7 +1181,7 @@ export function RealmLedgerDrawer({
 
   const tabs: Array<{ id: LedgerTab; label: string }> = [
     { id: 'standings', label: 'Realm' },
-    { id: 'decrees', label: `Decrees (${house.decreeIds.length})` },
+    { id: 'decrees', label: `Doctrines (${house.decreeIds.length}/8)` },
     { id: 'forces', label: `Forces (${ownUnits.length})` },
     { id: 'chronicle', label: 'Chronicle' },
   ];
@@ -968,7 +1216,7 @@ export function RealmLedgerDrawer({
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`min-h-[40px] rounded-xl text-[11px] font-bold transition ${
+              className={`touch-target min-h-[44px] rounded-xl text-[11px] font-bold transition ${
                 tab === t.id
                   ? 'bg-sky-600 text-white shadow'
                   : 'bg-slate-900/80 border border-slate-700 text-slate-300'
@@ -983,7 +1231,7 @@ export function RealmLedgerDrawer({
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
           {tab === 'standings' && (
             <>
-              {/* Coin Milestone Progress -> Next Royal Decree Draft */}
+              {/* Coin Milestone Progress -> Next Doctrine Pair Draft */}
               <div className="p-3 rounded-xl bg-slate-950/75 border border-amber-500/35 space-y-1.5">
                 <div className="flex items-center justify-between text-xs tabular-nums">
                   <span className="font-bold text-amber-200">Next Coin Milestone Draft</span>
@@ -999,7 +1247,7 @@ export function RealmLedgerDrawer({
                 </div>
                 <p className="text-[11px] text-slate-400">
                   Earn {Math.max(0, house.nextCoinMilestone - house.lifetimeCoinEarned)} more gross
-                  Coin to trigger a 1-of-3 Royal Decree Draft.
+                  Coin to trigger an Exclusive Doctrine Pair Draft.
                 </p>
               </div>
 
@@ -1017,7 +1265,7 @@ export function RealmLedgerDrawer({
                   Food • Sight delta: {seasonDef.unitSightDelta} • Move delta:{' '}
                   {seasonDef.unitMovementDelta}
                   {seasonDef.winterAttritionDamage > 0
-                    ? ` • Winter Attrition: −${seasonDef.winterAttritionDamage} HP outside home borders`
+                    ? ` • Winter Attrition: −${seasonDef.winterAttritionDamage} HP outside provisioned borders`
                     : ''}
                 </p>
                 {activeEffects.length > 0 && (
@@ -1070,7 +1318,7 @@ export function RealmLedgerDrawer({
                           </div>
                           <div className="text-[10px] text-slate-400">
                             {sup.ownedKeeps} {sup.ownedKeeps === 1 ? 'Keep' : 'Keeps'} • {h.decreeIds.length}{' '}
-                            {h.decreeIds.length === 1 ? 'Decree' : 'Decrees'} • {h.favor} Favor
+                            {h.decreeIds.length === 1 ? 'Doctrine' : 'Doctrines'} • {h.favor} Favor
                           </div>
                         </div>
                       </div>
@@ -1093,60 +1341,66 @@ export function RealmLedgerDrawer({
                 <p className="text-xs text-slate-200 leading-snug">{houseDef.passiveDescription}</p>
               </div>
 
-              {/* Enacted Decrees */}
-              <div className="space-y-1.5">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-emerald-300">
-                  Enacted Royal Decrees ({house.decreeIds.length})
+              {/* 8 Mutually Exclusive Doctrine Pairs Codex */}
+              <div className="space-y-2.5">
+                <h3 className="text-xs font-bold uppercase tracking-wide text-amber-300">
+                  8 Mutually Exclusive Doctrine Pairs
                 </h3>
-                {house.decreeIds.length === 0 ? (
-                  <p className="text-xs text-slate-400">
-                    None enacted yet. Reach 25 Lifetime Coin or upgrade a Keep to Tier 2 to trigger
-                    your first 1-of-3 Royal Decree Draft!
-                  </p>
-                ) : (
-                  house.decreeIds.map((id) => {
-                    const d = DECREES[id];
-                    return (
-                      <div
-                        key={id}
-                        className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-600/45 space-y-0.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-emerald-100">{d.title}</span>
-                          <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-900/70 text-emerald-200">
-                            {d.category}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-200">{d.effectText}</p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Remaining Eligible Decree Codex */}
-              <div className="space-y-1.5">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Available Decree Codex
-                </h3>
-                {DECREE_IDS.filter(
-                  (id) =>
-                    !house.decreeIds.includes(id) &&
-                    !DECREES[id].excludedHouseIds?.includes(viewerHouseId),
-                ).map((id) => {
-                  const d = DECREES[id];
+                {DECREE_PAIR_IDS.map((pairId) => {
+                  const pair = DECREE_PAIRS[pairId];
                   return (
                     <div
-                      key={id}
-                      className="p-2 rounded-xl bg-slate-900/70 border border-slate-800 space-y-0.5"
+                      key={pairId}
+                      className="p-2.5 rounded-xl bg-slate-950/75 border border-slate-800 space-y-1.5"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-slate-200">{d.title}</span>
-                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                          {d.category}
-                        </span>
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-amber-300">
+                        {pair.theme}
                       </div>
-                      <p className="text-[11px] text-slate-400">{d.effectText}</p>
+                      <div className="space-y-1.5">
+                        {pair.options.map((did) => {
+                          const d = DECREES[did];
+                          const isEnacted = house.decreeIds.includes(did);
+                          const isLocked = house.lockedDecreeIds.includes(did);
+                          return (
+                            <div
+                              key={did}
+                              className={`p-2 rounded-lg border space-y-0.5 ${
+                                isEnacted
+                                  ? 'bg-emerald-950/50 border-emerald-500/60'
+                                  : isLocked
+                                    ? 'bg-red-950/25 border-red-900/40 opacity-60'
+                                    : 'bg-slate-900/75 border-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span
+                                  className={`text-xs font-bold ${
+                                    isEnacted
+                                      ? 'text-emerald-200'
+                                      : isLocked
+                                        ? 'text-red-300 line-through'
+                                        : 'text-slate-200'
+                                  }`}
+                                >
+                                  {d.title}
+                                </span>
+                                <span
+                                  className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                    isEnacted
+                                      ? 'bg-emerald-800 text-emerald-100'
+                                      : isLocked
+                                        ? 'bg-red-900/70 text-red-200'
+                                        : 'bg-slate-800 text-slate-400'
+                                  }`}
+                                >
+                                  {isEnacted ? 'ENACTED' : isLocked ? 'LOCKED' : 'AVAILABLE'}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-300">{d.effectText}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
@@ -1156,6 +1410,59 @@ export function RealmLedgerDrawer({
 
           {tab === 'forces' && (
             <>
+              {/* House Lord-Commander Status Card */}
+              {commander && (
+                <div className="p-3 rounded-xl bg-amber-950/35 border border-amber-500/50 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase text-amber-300">
+                        House Lord-Commander • Level {commander.level} (
+                        {commander.level === 1
+                          ? `${commander.xp}/${COMMANDER_LEVEL2_XP} XP`
+                          : commander.level === 2
+                            ? `${commander.xp}/${COMMANDER_LEVEL3_XP} XP`
+                            : 'Max Level'}
+                        )
+                      </div>
+                      <div className="font-serif-march text-sm font-bold text-amber-100">
+                        {houseDef.commanderName}
+                      </div>
+                    </div>
+                    {commander.unitId && state.units[commander.unitId] ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onPanToTile(state.units[commander.unitId!]!.tileKey);
+                          onClose();
+                        }}
+                        className="touch-target min-h-[44px] px-3 py-1.5 rounded-lg bg-amber-600 text-slate-950 text-xs font-bold"
+                      >
+                        Locate →
+                      </button>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-red-900/80 text-red-200 text-[10px] font-bold">
+                        Wounded ({commander.woundedTurnsRemaining}t)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-300">
+                    <strong>{houseDef.commanderSkillName}:</strong> {houseDef.commanderSkillDesc}
+                  </div>
+                  {commander.traits.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {commander.traits.map((tid) => (
+                        <span
+                          key={tid}
+                          className="px-1.5 py-0.5 rounded bg-sky-900/75 text-sky-200 text-[10px] font-bold"
+                        >
+                          ♛ {COMMANDER_TRAITS[tid].title}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Own Keeps */}
               <div className="space-y-1.5">
                 <h3 className="text-xs font-bold uppercase tracking-wide text-amber-300">
@@ -1179,6 +1486,9 @@ export function RealmLedgerDrawer({
                           {k.specialization !== 'none'
                             ? ` (${KEEP_SPECIALIZATIONS[k.specialization].name})`
                             : ''}
+                          {k.citadelCharter !== 'none'
+                            ? ` • ${CITADEL_CHARTERS[k.citadelCharter].name}`
+                            : ''}
                         </span>
                         <span className="text-slate-300">
                           HP {k.keepHp}/{k.maxKeepHp}
@@ -1197,6 +1507,31 @@ export function RealmLedgerDrawer({
                   );
                 })}
               </div>
+
+              {/* Own Frontier Outposts */}
+              {ownOutposts.length > 0 && (
+                <div className="space-y-1.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-emerald-300">
+                    Frontier Outposts ({ownOutposts.length})
+                  </h3>
+                  {ownOutposts.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => {
+                        onPanToTile(o.tileKey);
+                        onClose();
+                      }}
+                      className="touch-target w-full p-2.5 rounded-xl bg-slate-900/85 border border-slate-700 text-left flex items-center justify-between text-xs tabular-nums active:bg-slate-800"
+                    >
+                      <span className="font-bold text-emerald-200">
+                        {o.name} (HP {o.hp}/{o.maxHp})
+                      </span>
+                      <span className="text-sky-300 font-semibold text-[11px]">Locate →</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Own Units */}
               <div className="space-y-1.5">
@@ -1224,16 +1559,25 @@ export function RealmLedgerDrawer({
                       >
                         <div>
                           <div className="font-bold text-slate-100">
-                            {def.name}{' '}
+                            {u.isCommander ? houseDef.commanderName : def.name}{' '}
                             <span className="text-[10px] font-semibold text-amber-300">
-                              ({rank.title})
+                              ({u.isCommander ? `Marshal Lv${commander?.level ?? 1}` : rank.title})
                             </span>
                             {u.isFortified && (
                               <span className="ml-1 text-[10px] text-emerald-400">• Fortified</span>
                             )}
+                            {u.isOverwatch && (
+                              <span className="ml-1 text-[10px] text-sky-400">• Overwatch</span>
+                            )}
+                            {u.isDeployed && (
+                              <span className="ml-1 text-[10px] text-amber-400">• Deployed</span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-400">
                             HP {u.hp}/{u.maxHp} • ATK {def.attack} • DEF {def.defense}
+                            {u.battleHonors.length > 0
+                              ? ` • ${u.battleHonors.map((h) => BATTLE_HONORS[h].title).join(', ')}`
+                              : ''}
                             {u.homeKeepId === 'orphaned' ? ' • Supply-Severed' : ''}
                           </div>
                         </div>

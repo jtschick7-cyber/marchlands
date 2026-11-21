@@ -1,15 +1,35 @@
 /**
- * Marchlands (Spec v0.3) — Mobile-First Title & New Campaign Setup Screen
+ * Marchlands (Spec v2.0) — Mobile-First Title & New Campaign Setup Screen
  *
  * Designed for 375x812 portrait viewports with zero horizontal overflow,
  * >= 44x44 touch targets, Resume Autosave card, all 5 Houses with inline SVG
- * heraldry, interactive Signature Unit & Unique Improvement inspection sheets,
- * unified refined setup toggles, and Save JSON Import.
+ * heraldry, interactive Signature Unit, Unique Improvement (with Lv2 upgrade),
+ * & Lord-Commander inspection sheets, Map Scale (34x34 / 28x28 / 22x22) and
+ * Chronicle Length (48 / 72 / 108) selectors, and Save JSON Import.
  */
 
 import { useState } from 'react';
-import type { Difficulty, GameMode, HouseId, ImprovementId, UnitId } from '../types/game.ts';
-import { HOUSES, HOUSE_IDS, IMPROVEMENTS, TERRAINS, UNITS } from '../data/index.ts';
+import type {
+  ChronicleLength,
+  Difficulty,
+  GameMode,
+  HouseId,
+  ImprovementId,
+  MapPreset,
+  UnitId,
+} from '../types/game.ts';
+import {
+  CHRONICLE_LENGTH_OPTIONS,
+  COMMANDER_SKILL_COOLDOWN,
+  DEFAULT_CHRONICLE_LIMIT,
+  DEFAULT_MAP_PRESET,
+  HOUSES,
+  HOUSE_IDS,
+  IMPROVEMENTS,
+  MAP_PRESETS,
+  TERRAINS,
+  UNITS,
+} from '../data/index.ts';
 import type { SaveRecord } from '../storage/persistence.ts';
 import {
   HouseSigilSvg,
@@ -25,6 +45,8 @@ interface TitleScreenProps {
   readonly onStartNewCampaign: (opts: {
     houseId: HouseId;
     mode: GameMode;
+    mapPreset: MapPreset;
+    chronicleLimit: ChronicleLength;
     difficulty: Difficulty;
     houseCount: 4 | 5;
     seed: number;
@@ -35,7 +57,8 @@ interface TitleScreenProps {
 
 type InspectTarget =
   | { readonly kind: 'unit'; readonly houseId: HouseId; readonly unitId: UnitId }
-  | { readonly kind: 'improvement'; readonly houseId: HouseId; readonly improvementId: ImprovementId };
+  | { readonly kind: 'improvement'; readonly houseId: HouseId; readonly improvementId: ImprovementId }
+  | { readonly kind: 'commander'; readonly houseId: HouseId };
 
 const TOGGLE_ACTIVE =
   'bg-[#2C2820] border-[#D4AF5A]/85 text-[#F6E7C1] shadow-sm';
@@ -51,8 +74,10 @@ export function TitleScreen({
 }: TitleScreenProps) {
   const [selectedHouse, setSelectedHouse] = useState<HouseId>('vane');
   const [mode, setMode] = useState<GameMode>('dominion');
+  const [mapPreset, setMapPreset] = useState<MapPreset>(DEFAULT_MAP_PRESET);
+  const [chronicleLimit, setChronicleLimit] = useState<ChronicleLength>(DEFAULT_CHRONICLE_LIMIT);
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
-  const [houseCount, setHouseCount] = useState<4 | 5>(4);
+  const [houseCount, setHouseCount] = useState<4 | 5>(5);
   const [seedInput, setSeedInput] = useState<string>('');
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
@@ -64,6 +89,8 @@ export function TitleScreen({
     onStartNewCampaign({
       houseId: selectedHouse,
       mode,
+      mapPreset,
+      chronicleLimit,
       difficulty,
       houseCount,
       seed,
@@ -203,7 +230,7 @@ export function TitleScreen({
                               unitId: h.signatureUnitId,
                             });
                           }}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#16181D] border border-[#383B44] hover:border-sky-400/70 active:bg-[#252932] text-[10px] font-semibold text-sky-300 transition"
+                          className="touch-target min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#16181D] border border-[#383B44] hover:border-sky-400/70 active:bg-[#252932] text-[10px] font-semibold text-sky-300 transition"
                           aria-label={`Inspect ${UNITS[h.signatureUnitId].name} stats`}
                         >
                           <span>Unit: {UNITS[h.signatureUnitId].name}</span>
@@ -221,7 +248,7 @@ export function TitleScreen({
                               improvementId: h.uniqueImprovementId,
                             });
                           }}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#16181D] border border-[#383B44] hover:border-emerald-400/70 active:bg-[#252932] text-[10px] font-semibold text-emerald-300 transition"
+                          className="touch-target min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#16181D] border border-[#383B44] hover:border-emerald-400/70 active:bg-[#252932] text-[10px] font-semibold text-emerald-300 transition"
                           aria-label={`Inspect ${IMPROVEMENTS[h.uniqueImprovementId].name} details`}
                         >
                           <span>Unique: {IMPROVEMENTS[h.uniqueImprovementId].name}</span>
@@ -229,9 +256,54 @@ export function TitleScreen({
                             ⓘ
                           </span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInspectTarget({
+                              kind: 'commander',
+                              houseId: hid,
+                            });
+                          }}
+                          className="touch-target min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#16181D] border border-[#383B44] hover:border-amber-400/70 active:bg-[#252932] text-[10px] font-semibold text-amber-300 transition"
+                          aria-label={`Inspect ${h.commanderName} Command Skill`}
+                        >
+                          <span>Marshal: {h.commanderName}</span>
+                          <span className="text-amber-400/80 text-[10px]" aria-hidden="true">
+                            ⓘ
+                          </span>
+                        </button>
                       </div>
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Map Preset Selector (Grand 34x34 default, Standard 28x28, Compact 22x22) */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold uppercase tracking-wide text-stone-300">
+              Frontier Scale
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(['grand', 'standard', 'compact'] as const).map((p) => {
+                const cfg = MAP_PRESETS[p];
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setMapPreset(p)}
+                    aria-pressed={mapPreset === p}
+                    className={`touch-target px-1.5 py-1.5 rounded-xl border text-[11px] font-bold transition flex flex-col items-center justify-center ${
+                      mapPreset === p ? TOGGLE_ACTIVE : TOGGLE_INACTIVE
+                    }`}
+                  >
+                    <span className="capitalize">{p === 'grand' ? 'Grand March' : p}</span>
+                    <span className="text-[10px] font-normal opacity-80">
+                      {cfg.gridSize}×{cfg.gridSize}
+                    </span>
+                  </button>
                 );
               })}
             </div>
@@ -253,11 +325,35 @@ export function TitleScreen({
                     mode === m ? TOGGLE_ACTIVE : TOGGLE_INACTIVE
                   }`}
                 >
-                  {m === 'dominion' ? 'Dominion' : '33-Turn Chronicle'}
+                  {m === 'dominion' ? 'Dominion' : `${chronicleLimit}-Turn Chronicle`}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Chronicle Length Selector (48 / 72 / 108 turns) when Chronicle mode is active */}
+          {mode === 'chronicle' && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wide text-stone-300">
+                Chronicle Length
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {CHRONICLE_LENGTH_OPTIONS.map((len) => (
+                  <button
+                    key={len}
+                    type="button"
+                    onClick={() => setChronicleLimit(len)}
+                    aria-pressed={chronicleLimit === len}
+                    className={`touch-target rounded-xl border text-xs font-bold transition ${
+                      chronicleLimit === len ? TOGGLE_ACTIVE : TOGGLE_INACTIVE
+                    }`}
+                  >
+                    {len} Turns ({len / 12} Yrs)
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Difficulty & House Count — Unified Refined Active Style */}
           <div className="grid grid-cols-2 gap-2">
@@ -452,14 +548,14 @@ export function TitleScreen({
 
                   <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
                     <span className="px-2.5 py-1 rounded-lg bg-[#16181D] border border-[#383B44] font-semibold text-amber-300">
-                      Cost: {u.matCost} Materials
+                      Cost: {u.matCost} Mat{u.ironCost > 0 ? ` • ${u.ironCost} Iron` : ''}
                     </span>
                     <span className="px-2.5 py-1 rounded-lg bg-[#16181D] border border-[#383B44] font-semibold text-yellow-300">
                       Upkeep: {u.coinUpkeep > 0 ? `${u.coinUpkeep} Coin/turn` : 'Free'}
                     </span>
-                    {u.requiresSmithyCombo && (
+                    {u.localRequirement !== 'none' && (
                       <span className="px-2.5 py-1 rounded-lg bg-[#2C2820] border border-[#D4AF5A]/50 font-semibold text-[#F6E7C1] text-[11px]">
-                        Requires Smithy + Iron Mine + Mill
+                        Requires: {u.localRequirement.replace(/_/g, ' ')}
                       </span>
                     )}
                   </div>
@@ -469,12 +565,80 @@ export function TitleScreen({
                   </p>
                 </>
               );
+            })() : inspectTarget.kind === 'commander' ? (() => {
+              const h = HOUSES[inspectTarget.houseId];
+              const cmd = UNITS.lord_commander;
+              return (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 rounded-xl bg-[#EAE3D2]/95 border border-[#D4AF5A]/80 shadow-inner flex items-center justify-center shrink-0">
+                        <svg width="40" height="40" viewBox="0 0 36 36" aria-hidden="true">
+                          <UnitFigureSvg unitId="lord_commander" houseId={h.id} />
+                        </svg>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#D4AF5A]">
+                          {h.name} • Lord-Commander
+                        </div>
+                        <h3 className="font-serif-march text-base font-bold text-[#FAF7F0] truncate">
+                          {h.commanderName}
+                        </h3>
+                        <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-[#16181D] border border-amber-500/45 text-[10px] font-bold uppercase text-amber-300">
+                          {h.epithet}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInspectTarget(null)}
+                      className="touch-target px-3 rounded-xl bg-[#252932] border border-[#383B44] text-xs font-bold text-stone-200 shrink-0"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5 text-center tabular-nums">
+                    <div className="p-2 rounded-xl bg-[#16181D] border border-[#383B44]">
+                      <div className="text-[9px] uppercase font-bold text-stone-400">HP</div>
+                      <div className="text-sm font-bold text-emerald-400">{cmd.maxHp}</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#16181D] border border-[#383B44]">
+                      <div className="text-[9px] uppercase font-bold text-stone-400">Attack</div>
+                      <div className="text-sm font-bold text-amber-300">{cmd.attack}</div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-[#16181D] border border-[#383B44]">
+                      <div className="text-[9px] uppercase font-bold text-stone-400">Defense</div>
+                      <div className="text-sm font-bold text-sky-300">{cmd.defense}</div>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-[#2C2820] border border-[#D4AF5A]/55 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-[#F6E7C1]">
+                        Command Skill: {h.commanderSkillName}
+                      </span>
+                      <span className="text-[10px] font-bold text-amber-300">
+                        {COMMANDER_SKILL_COOLDOWN}t Cooldown
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-200 leading-snug">{h.commanderSkillDesc}</p>
+                  </div>
+
+                  <p className="text-[11px] text-stone-300 leading-relaxed bg-[#16181D]/80 rounded-xl p-2.5 border border-[#383B44]">
+                    Exempt from Army Cap (2 Coin/turn). Grants +10% Attack &amp; Defense, Winter
+                    shelter, and Mutiny immunity to adjacent allies. Earns Marshal Traits at Levels
+                    2 &amp; 3. If defeated, recovers at Capital in 5 turns.
+                  </p>
+                </>
+              );
             })() : (() => {
               const imp = IMPROVEMENTS[inspectTarget.improvementId];
               const h = HOUSES[inspectTarget.houseId];
               const yields: string[] = [];
               if (imp.baseFood > 0) yields.push(`+${imp.baseFood} Food`);
               if (imp.baseMaterials > 0) yields.push(`+${imp.baseMaterials} Mat`);
+              if (imp.baseIron > 0) yields.push(`+${imp.baseIron} Iron`);
               if (imp.baseCoin > 0) yields.push(`+${imp.baseCoin} Coin`);
               const terrainsLabel = imp.validTerrains.map((t) => TERRAINS[t].name).join(', ');
               return (
@@ -506,7 +670,7 @@ export function TitleScreen({
 
                   <div className="flex flex-wrap gap-1.5 text-xs tabular-nums">
                     <span className="px-2.5 py-1 rounded-lg bg-[#16181D] border border-[#383B44] font-semibold text-amber-300">
-                      Cost: {imp.matCost} Materials
+                      Cost: {imp.matCost} Mat{imp.ironCost > 0 ? ` • ${imp.ironCost} Iron` : ''}
                     </span>
                     <span className="px-2.5 py-1 rounded-lg bg-[#16181D] border border-[#383B44] font-semibold text-stone-200">
                       Terrain: {terrainsLabel}
@@ -521,6 +685,15 @@ export function TitleScreen({
                   <p className="text-xs text-stone-300 leading-relaxed bg-[#16181D]/80 rounded-xl p-2.5 border border-[#383B44]">
                     {imp.description}
                   </p>
+
+                  {imp.upgrade && (
+                    <div className="p-2.5 rounded-xl bg-emerald-950/45 border border-emerald-500/40 text-xs space-y-0.5">
+                      <div className="font-bold text-emerald-200">
+                        Level-2 Upgrade: {imp.upgrade.name} (Tier-{imp.upgrade.minKeepTier}+ Keep)
+                      </div>
+                      <div className="text-[11px] text-stone-300">{imp.upgrade.description}</div>
+                    </div>
+                  )}
 
                   <div className="text-[11px] text-stone-400">
                     On capture:{' '}

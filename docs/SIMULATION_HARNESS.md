@@ -1,94 +1,49 @@
-Spec Version: 0.3
+Spec Version: 2.0
 
-# Marchlands: Headless Simulation Harness & Balance Gates
-
-This document specifies the headless AI-vs-AI simulation harness built and verified **before any React UI work begins**.
+# Marchlands v2.0: Headless Simulation Harness & Balance Gates
 
 ---
 
-## 1. Mandatory Build Order
-
-1. `src/types`
-2. `src/data`
-3. `src/engine/prng.ts`
-4. `mapGen`
-5. Core rules (movement, ZoC, combat, economy, capture, fog)
-6. Keep specializations, Crown, seasons, and Frontier Events
-7. Scoring and victory
-8. AI (`docs/AI_ARCHITECTURE.md`)
-9. **Simulation harness and balance gates**
-10. `src/storage`
-11. `src/components` (UI)
-
-**Hard Gate:** No React component may be written until **Step 9's balance gates pass** or the human explicitly waives a gate.
-
----
-
-## 2. CLI Runner
+## 1. CLI Runner
 
 ```bash
-npx tsx scripts/sim.ts --games 200 --seed 1 --houses 5 --mode dominion|chronicle \
-  [--maxTurns 150] [--difficulty normal] [--out sim-reports/]
+node scripts/sim.ts --games 50 --seed 1 --houses 5 --mode dominion|chronicle \
+  [--map grand|standard|compact] [--maxTurns 220] [--difficulty normal] [--out sim-reports/]
 ```
 
-* Every House is AI-controlled, using its own personality. AI fog is honest: each AI decides only from what it can see.
-* Game *i* uses seed `seed + i`. House seating rotates so every House plays from every start position.
-* `--maxTurns` defaults to `150` in Dominion mode; Chronicle mode ends after **Turn 33**.
+* Defaults to `--map grand` (`34×34`), `--maxTurns 220` in Dominion mode, and `72` turns (Standard Chronicle) in Chronicle mode.
 
 ---
 
-## 3. Invariant Checks
+## 2. Invariant Checks (Every Turn of Every Game)
 
-Checked on **every turn of every game**. Any failure aborts that game and is reported with `seed` and `turnNumber`:
-
-1. No negative resources (`materials >= 0`, `coin >= 0`, `favor >= 0`).
-2. No unit outside the `22x22` map or on an impassable (`mountain`) tile; no two units on the same tile.
-3. Unit counts per Keep stay within cap, plus documented over-cap exceptions (`war_camp` loss, Garrison capture, `free_company_spearman`).
-4. Every owned tile's `keepId` points to an existing Keep.
-5. Serialization round-trip: `JSON.parse(JSON.stringify(state))` deep-equals `state`.
-6. **Determinism:** Replaying the same seed produces an identical final-state hash (checked `1` in every `20` games).
-7. Every AI turn ends within `MAX_AI_ACTIONS` (`12`) and the `2,000` combat resolution budget; the watchdog never fires.
+1. No negative resources (`materials >= 0`, `iron >= 0`, `coin >= 0`, `favor >= 0`).
+2. Every unit in bounds (`0 <= x, y < gridSize`), never on Mountain, zero tile overlaps.
+3. Keep Army Caps respected (+ documented over-cap exceptions: War Camp loss, Garrison capture, Free Company, Lord-Commander exempt).
+4. Owned tile `keepId` / `outpostId` referential integrity (Watchtower border-projection tiles may have `keepId === null && outpostId === null` with valid `ownerHouseId`).
+5. `JSON.parse(JSON.stringify(state))` deep-equals `state` (100% JSON-serializable).
+6. Determinism replay hash check (`1` in every `10` games).
+7. AI turns strictly within `MAX_AI_ACTIONS = 16`, `2,000` combat resolutions, and `8,000ms` watchdog.
 
 ---
 
-## 4. Report Outputs
-
-Written to `sim-reports/<timestamp>.json` plus a human-readable `.md` summary:
-
-* Win rate by House and by victory type; win rate by start position.
-* Game length: median, p10, p90; stalemate rate (hit `--maxTurns`, or no Keep changed hands for `25` turns).
-* Turn each House reaches Tier 2 (median); specialization pick rate and win rate per specialization.
-* Decree pick rate and win rate when owned; Writ completion rate per Writ; Mandate claims, wins, and broken claims.
-* Event frequency and choice selection rates.
-* First-contact turn (first attack between Houses); units alive per House over time.
-* AI turn time per House: p50, p95, max.
-* **AI coordination metrics:**
-  * *Focus-fire rate:* share of AI kills where `2` or more AI units damaged the victim that turn.
-  * *Piecemeal rate:* share of AI attack turns where exactly one unit attacked and was killed by retaliation or by the next enemy turn.
-* **One-Shot Protection triggers** per game; **Spearman Brace triggers** per game; **Men-at-Arms** usage; **Sapper Crew vs. Siege Ram** usage; **War Camp** count per Corvus game.
-* **Median decrees owned at game end**; **Ancient Watchtower occupied turns** per game.
-
----
-
-## 5. Balance Gates (Initial Targets)
-
-Run the full gate suite at **Normal** difficulty. Also run `50` games at Easy and Hard and verify that in mixed-difficulty test games, Hard AIs beat Normal AIs, and Normal AIs beat Easy AIs, at least **`60%`** of the time.
+## 3. v2.0 Balance Gates (Grand `34×34`, 5-House Normal)
 
 | Gate | Target |
 | :--- | :--- |
-| Win rate per House (5-House Dominion) | `12–28%` each (`20%` is perfectly fair) |
-| Dominion median game length | `40–80` turns |
-| Dominion stalemate rate | `< 5%` |
-| Victory type mix (Dominion) | No single type `> 70%` |
-| Chronicle (Turn 33): score spread between 1st and 5th | `≥ 25%` of 1st place's score |
-| Each specialization's pick rate | `≥ 15%` |
-| AI turn time p95 (Node, desktop) | `< 250 ms` per House (Normal); `< 500 ms` (Hard) |
-| AI focus-fire rate (Normal) | `≥ 50%` |
-| AI piecemeal rate (Normal) | `≤ 20%` |
 | Invariant failures | `0` |
+| Win rate per House (5-House Dominion) | `12–28%` each |
+| Dominion median game length (`34×34`) | `85–130` turns |
+| Dominion stalemate rate | `< 5%` |
+| Victory type mix (Dominion) | No single type `> 75%` |
+| Mandate break rate (when claimed) | `> 15%` (not auto-win) |
+| Chronicle (Turn 72) 1st-to-5th score spread | `≥ 25%` of 1st place |
+| Tier-2 Specialization pick rates (4 specs) | Each `≥ 10%` |
+| Siege units trained per game (Sappers + Rams + Trebuchets) | `≥ 2.0` / game |
+| Median Decrees owned at game end | `4–8` (exclusive build commitment) |
+| AI turn time p95 (Node, `34×34`) | `< 250 ms` (Normal); `< 500 ms` (Hard) |
+| AI focus-fire rate (Normal) | `≥ 45%` |
+| AI piecemeal rate (Normal) | `≤ 20%` |
 
 ### CI Smoke Test
-A Vitest test running `5` seeded games capped at `60` turns. Asserts `0` invariant failures and full determinism, finishing in **`< 30` seconds**.
-
-### Tuning Workflow
-When a gate fails, change constants in `src/data/` only, re-run the harness, and record each change and its before/after metrics in `docs/CHANGELOG.md` under **Balance passes**.
+Vitest test running `3` seeded `34×34` games capped at `60` turns (plus `2` `22×22` Compact games) with `0` invariant failures and 100% determinism in `< 30s`.

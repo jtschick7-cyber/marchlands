@@ -1,19 +1,18 @@
 /**
- * Marchlands (Spec v0.3) — The Crown: Royal Favor, Writs, Audience & Regent's Mandate
+ * Marchlands (Spec v2.0) — The Crown: Royal Favor, Writs, Audience & Regent's Mandate
  */
 
-import type { ActiveWrit, GameState, HouseId, WritId } from '../types/game.ts';
+import type { ActiveWrit, GameState, HouseId, HouseState, WritId } from '../types/game.ts';
 import {
   AUDIENCE_GRANT_AMOUNT,
   AUDIENCE_GRANT_FAVOR,
+  AUDIENCE_IRON_AMOUNT,
+  AUDIENCE_IRON_FAVOR,
   AUDIENCE_PETITION_FAVOR,
   AUDIENCE_REROLL_FAVOR,
-  CHRONICLE_TURN_LIMIT,
   CROWN_WRITS,
+  DECREES,
   MANDATE_COOLDOWN_TURNS,
-  MANDATE_HOLD_TURNS,
-  MANDATE_MIN_FAVOR,
-  MANDATE_MIN_KEEPS,
   WRIT_BATCH_SIZE,
   WRIT_IDS,
   WRIT_INTERVAL_TURNS,
@@ -21,29 +20,30 @@ import {
 } from '../data/index.ts';
 import { openNextPendingModal, rollDraftHand } from './draftAndSpec.ts';
 import { shuffleArray } from './prng.ts';
+import { getIndexedHouseTiles } from './spatialIndex.ts';
 import {
   addFavor,
   addLifetimeCoin,
   appendChronicle,
   getHouseKeeps,
   getHouseUnits,
+  getMapPresetConfig,
+  houseHasDecree,
 } from './stateHelpers.ts';
 
-/**
- * Publishes 3 new Crown Writs at Turn 3 and every 6 turns thereafter.
- * Suppressed on Turn 33 in Chronicle mode so Turn 27 Writs remain active through finale.
- */
+export function getAudienceCost(house: HouseState | undefined, baseCost: number): number {
+  return houseHasDecree(house, 'decree_regents_envoy') ? Math.max(1, baseCost - 1) : baseCost;
+}
+
 export function publishCrownWrits(state: GameState): GameState {
   if (state.turnNumber !== state.crown.nextWritTurn) return state;
-  if (state.mode === 'chronicle' && state.turnNumber === CHRONICLE_TURN_LIMIT) {
+  if (state.mode === 'chronicle' && state.turnNumber >= state.chronicleLimit) {
     return state;
   }
 
   const recentSet = new Set<WritId>(state.crown.recentWritIds);
   let pool = WRIT_IDS.filter((id) => !recentSet.has(id));
-  if (pool.length < WRIT_BATCH_SIZE) {
-    pool = [...WRIT_IDS];
-  }
+  if (pool.length < WRIT_BATCH_SIZE) pool = [...WRIT_IDS];
 
   const shuffled = shuffleArray(state.rngSeed, state.rngCounter, pool);
   const chosen = shuffled.value.slice(0, WRIT_BATCH_SIZE);
@@ -57,13 +57,10 @@ export function publishCrownWrits(state: GameState): GameState {
   const maxRecent = WRIT_BATCH_SIZE * WRIT_NO_REPEAT_PUBLICATIONS;
   const nextRecent = [...state.crown.recentWritIds, ...chosen].slice(-maxRecent);
 
-  // Reset per-window writProgress on all Houses
   const nextHouses = { ...state.houses };
   for (const hid of state.houseOrder) {
     const h = nextHouses[hid];
-    if (h) {
-      nextHouses[hid] = { ...h, writProgress: {} };
-    }
+    if (h) nextHouses[hid] = { ...h, writProgress: {} };
   }
 
   let nextState: GameState = {
@@ -100,36 +97,32 @@ function isWritConditionMet(state: GameState, houseId: HouseId, writId: WritId):
       return (house.writProgress.writ_clear_camp ?? 0) >= 1;
     case 'writ_annex':
       return (house.writProgress.writ_annex ?? 0) >= 1;
-    case 'writ_watch': {
-      const heldWatchtowers = getHouseUnits(state, houseId).filter(
-        (u) => state.tiles[u.tileKey]?.landmark === 'ancient_watchtower',
-      ).length;
-      return heldWatchtowers >= 2;
-    }
+    case 'writ_watch':
+      return (
+        getHouseUnits(state, houseId).filter(
+          (u) => state.tiles[u.tileKey]?.landmark === 'ancient_watchtower',
+        ).length >= 2
+      );
     case 'writ_strongholds':
-      return getHouseKeeps(state, houseId).filter((k) => k.tier === 2).length >= 2;
+      return getHouseKeeps(state, houseId).filter((k) => k.tier >= 2).length >= 2;
     case 'writ_victories':
       return (house.writProgress.writ_victories ?? 0) >= 3;
-    case 'writ_markets': {
-      const markets = Object.values(state.tiles).filter(
-        (t) => t.ownerHouseId === houseId && t.improvement === 'market',
-      ).length;
-      return markets >= 2;
-    }
+    case 'writ_markets':
+      return (
+        getIndexedHouseTiles(state, houseId).filter((t) => t.improvement === 'market').length >= 2
+      );
     case 'writ_relics':
       return (house.writProgress.writ_relics ?? 0) >= 2;
     case 'writ_muster':
-      return getHouseUnits(state, houseId).length >= 6;
+      return getHouseUnits(state, houseId).length >= 8;
     case 'writ_tithe':
-      return false; // Voluntary action via payRegentsTithe
-    case 'writ_iron': {
-      const mines = Object.values(state.tiles).filter(
-        (t) =>
-          t.ownerHouseId === houseId &&
-          (t.improvement === 'iron_mine' || t.improvement === 'deep_smeltery'),
-      ).length;
-      return mines >= 2;
-    }
+      return false;
+    case 'writ_iron':
+      return (
+        getIndexedHouseTiles(state, houseId).filter(
+          (t) => t.improvement === 'iron_mine' || t.improvement === 'deep_smeltery',
+        ).length >= 2
+      );
     case 'writ_raze':
       return (house.writProgress.writ_raze ?? 0) >= 1;
     case 'writ_capture':
@@ -137,9 +130,6 @@ function isWritConditionMet(state: GameState, houseId: HouseId, writId: WritId):
   }
 }
 
-/**
- * Checks all uncompleted active Writs at the end of `houseId`'s turn.
- */
 export function checkWritCompletion(state: GameState, houseId: HouseId): GameState {
   const house = state.houses[houseId];
   if (!house || house.isEliminated) return state;
@@ -158,13 +148,17 @@ export function checkWritCompletion(state: GameState, houseId: HouseId): GameSta
     anyCompleted = true;
 
     let currHouse = nextState.houses[houseId]!;
-    currHouse = addFavor(currHouse, def.rewardFavor);
+    const favorGain = houseHasDecree(currHouse, 'decree_regents_envoy')
+      ? Math.ceil(def.rewardFavor * 1.5)
+      : def.rewardFavor;
+    currHouse = addFavor(currHouse, favorGain);
     currHouse = addLifetimeCoin(currHouse, def.rewardCoin);
     currHouse = {
       ...currHouse,
       resources: {
         ...currHouse.resources,
         materials: currHouse.resources.materials + def.rewardMaterials,
+        iron: currHouse.resources.iron + def.rewardIron,
       },
     };
 
@@ -179,7 +173,7 @@ export function checkWritCompletion(state: GameState, houseId: HouseId): GameSta
       actorHouseId: houseId,
       targetHouseId: null,
       tileKey: null,
-      summary: `House ${houseId} fulfilled "${def.title}" (+${def.rewardFavor} Favor).`,
+      summary: `House ${houseId} fulfilled "${def.title}" (+${favorGain} Favor${def.rewardIron > 0 ? `, +${def.rewardIron} Iron` : ''}).`,
       isPublic: true,
     });
   }
@@ -187,9 +181,6 @@ export function checkWritCompletion(state: GameState, houseId: HouseId): GameSta
   return anyCompleted ? nextState : state;
 }
 
-/**
- * Voluntary action for `writ_tithe`: pay 20 Coin -> +3 Favor.
- */
 export function canPayRegentsTithe(state: GameState, houseId: HouseId): boolean {
   const house = state.houses[houseId];
   if (!house || house.isEliminated) return false;
@@ -204,11 +195,14 @@ export function payRegentsTithe(state: GameState, houseId: HouseId): GameState {
   if (!canPayRegentsTithe(state, houseId)) return state;
   const def = CROWN_WRITS.writ_tithe;
   let house = state.houses[houseId]!;
+  const favorGain = houseHasDecree(house, 'decree_regents_envoy')
+    ? Math.ceil(def.rewardFavor * 1.5)
+    : def.rewardFavor;
   house = {
     ...house,
     resources: { ...house.resources, coin: house.resources.coin - def.titheCoinCost },
   };
-  house = addFavor(house, def.rewardFavor);
+  house = addFavor(house, favorGain);
 
   const updatedWrits = state.crown.activeWrits.map((w) =>
     w.writId === 'writ_tithe' ? { ...w, completedByHouseId: houseId } : w,
@@ -225,29 +219,28 @@ export function payRegentsTithe(state: GameState, houseId: HouseId): GameState {
     actorHouseId: houseId,
     targetHouseId: null,
     tileKey: null,
-    summary: `House ${houseId} paid the Regent's Tithe (+${def.rewardFavor} Favor).`,
+    summary: `House ${houseId} paid the Regent's Tithe (+${favorGain} Favor).`,
     isPublic: true,
   });
 
   return nextState;
 }
 
-// ============================================================================
-// Crown Audience Actions (Max 1/turn per House)
-// ============================================================================
-
 export function performRoyalReroll(state: GameState, houseId: HouseId): GameState {
   const house = state.houses[houseId];
+  const cost = getAudienceCost(house, AUDIENCE_REROLL_FAVOR);
   if (
     !house ||
     house.audienceUsedThisTurn ||
-    house.favor < AUDIENCE_REROLL_FAVOR ||
-    state.pendingDraftChoices === null
+    house.favor < cost ||
+    state.pendingDraftChoices === null ||
+    state.pendingDraftChoices.length === 0
   ) {
     return state;
   }
 
-  const { hand, nextRngCounter } = rollDraftHand(state, houseId);
+  const currentPairId = DECREES[state.pendingDraftChoices[0]!].pairId;
+  const { hand, nextRngCounter } = rollDraftHand(state, houseId, currentPairId);
   return {
     ...state,
     rngCounter: nextRngCounter,
@@ -256,7 +249,7 @@ export function performRoyalReroll(state: GameState, houseId: HouseId): GameStat
       ...state.houses,
       [houseId]: {
         ...house,
-        favor: house.favor - AUDIENCE_REROLL_FAVOR,
+        favor: house.favor - cost,
         audienceUsedThisTurn: true,
       },
     },
@@ -265,7 +258,8 @@ export function performRoyalReroll(state: GameState, houseId: HouseId): GameStat
 
 export function performPetitionCharter(state: GameState, houseId: HouseId): GameState {
   const house = state.houses[houseId];
-  if (!house || house.audienceUsedThisTurn || house.favor < AUDIENCE_PETITION_FAVOR) {
+  const cost = getAudienceCost(house, AUDIENCE_PETITION_FAVOR);
+  if (!house || house.audienceUsedThisTurn || house.favor < cost) {
     return state;
   }
 
@@ -275,7 +269,7 @@ export function performPetitionCharter(state: GameState, houseId: HouseId): Game
       ...state.houses,
       [houseId]: {
         ...house,
-        favor: house.favor - AUDIENCE_PETITION_FAVOR,
+        favor: house.favor - cost,
         audienceUsedThisTurn: true,
         pendingDraftCount: house.pendingDraftCount + 1,
       },
@@ -291,16 +285,18 @@ export function performPetitionCharter(state: GameState, houseId: HouseId): Game
 export function performCrownGrant(
   state: GameState,
   houseId: HouseId,
-  resource: 'materials' | 'coin',
+  resource: 'materials' | 'coin' | 'iron',
 ): GameState {
   const house = state.houses[houseId];
-  if (!house || house.audienceUsedThisTurn || house.favor < AUDIENCE_GRANT_FAVOR) {
+  const baseCost = resource === 'iron' ? AUDIENCE_IRON_FAVOR : AUDIENCE_GRANT_FAVOR;
+  const cost = getAudienceCost(house, baseCost);
+  if (!house || house.audienceUsedThisTurn || house.favor < cost) {
     return state;
   }
 
   let updatedHouse = {
     ...house,
-    favor: house.favor - AUDIENCE_GRANT_FAVOR,
+    favor: house.favor - cost,
     audienceUsedThisTurn: true,
   };
 
@@ -312,36 +308,41 @@ export function performCrownGrant(
         materials: updatedHouse.resources.materials + AUDIENCE_GRANT_AMOUNT,
       },
     };
+  } else if (resource === 'iron') {
+    updatedHouse = {
+      ...updatedHouse,
+      resources: {
+        ...updatedHouse.resources,
+        iron: updatedHouse.resources.iron + AUDIENCE_IRON_AMOUNT,
+      },
+    };
   } else {
     updatedHouse = addLifetimeCoin(updatedHouse, AUDIENCE_GRANT_AMOUNT);
   }
 
   let nextState: GameState = {
     ...state,
-    houses: {
-      ...state.houses,
-      [houseId]: updatedHouse,
-    },
+    houses: { ...state.houses, [houseId]: updatedHouse },
   };
 
   if (updatedHouse.isHuman && updatedHouse.pendingDraftCount > 0) {
     nextState = openNextPendingModal(nextState, houseId);
   }
-
   return nextState;
 }
-
-// ============================================================================
-// Regent's Mandate (Dominion Mode Only)
-// ============================================================================
 
 export function evaluateRegentsMandate(state: GameState, houseId: HouseId): GameState {
   if (state.mode !== 'dominion' || state.phase === 'game_over') return state;
   const house = state.houses[houseId];
   if (!house || house.isEliminated) return state;
 
-  const keepCount = getHouseKeeps(state, houseId).length;
-  const qualifies = house.favor >= MANDATE_MIN_FAVOR && keepCount >= MANDATE_MIN_KEEPS;
+  const cfg = getMapPresetConfig(state);
+  const keeps = getHouseKeeps(state, houseId);
+  const tier3Count = keeps.filter((k) => k.tier === 3).length;
+  const qualifies =
+    house.favor >= cfg.mandateMinFavor &&
+    keeps.length >= cfg.mandateMinKeeps &&
+    tier3Count >= cfg.mandateMinTier3Citadels;
 
   if (state.crown.claimantHouseId === houseId) {
     if (!qualifies) {
@@ -369,7 +370,7 @@ export function evaluateRegentsMandate(state: GameState, houseId: HouseId): Game
     }
 
     const startTurn = state.crown.claimStartTurn ?? state.turnNumber;
-    if (state.turnNumber - startTurn >= MANDATE_HOLD_TURNS) {
+    if (state.turnNumber - startTurn >= cfg.mandateHoldTurns) {
       let nextState: GameState = {
         ...state,
         winnerHouseId: houseId,
@@ -386,11 +387,9 @@ export function evaluateRegentsMandate(state: GameState, houseId: HouseId): Game
       });
       return nextState;
     }
-
     return state;
   }
 
-  // No current claimant: check if houseId claims now
   if (state.crown.claimantHouseId === null && qualifies) {
     const cooldownUntil = state.crown.claimCooldowns[houseId] ?? 0;
     if (state.turnNumber >= cooldownUntil) {
@@ -407,7 +406,7 @@ export function evaluateRegentsMandate(state: GameState, houseId: HouseId): Game
         actorHouseId: houseId,
         targetHouseId: null,
         tileKey: null,
-        summary: `House ${houseId} has claimed the Regent's Mandate! Hold for 3 turns to win.`,
+        summary: `House ${houseId} claimed the Regent's Mandate! Hold for ${cfg.mandateHoldTurns} turns to win.`,
         isPublic: true,
       });
       return nextState;

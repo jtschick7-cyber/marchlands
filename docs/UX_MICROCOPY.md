@@ -1,8 +1,8 @@
-Spec Version: 0.3
+Spec Version: 2.0
 
-# Artifact #5: Marchlands UX Microcopy, Tooltips & Mobile Onboarding
+# Artifact #5: Marchlands v2.0 UX Microcopy, Tooltips & Mobile Onboarding
 
-This document defines all player-facing UI copy, compact mobile tooltip strings, combat/adjacency preview labels, the 3-card interactive onboarding primer, recap & Crown strings, and end-of-campaign summary templates for *Marchlands*. Every string is calibrated for **375x812 mobile viewports**—keeping labels punchy, scannable in under two seconds, and grounded in the game's low-fantasy frontier tone.
+This document defines all player-facing UI copy, compact mobile tooltip strings, combat/adjacency preview labels, the 3-card interactive onboarding primer, recap & Crown strings, and end-of-campaign summary templates for *Marchlands v2.0* (4-resource Iron economy, Keep Tier 3 Grand Citadels, Lord-Commanders, Class Tactical Actions, Exclusive Doctrine Pairs, and `34x34` Grand March maps). Every string is calibrated for **375x812 mobile viewports**.
 
 ---
 
@@ -12,11 +12,12 @@ When the player taps any resource pill or status badge in the `TopHud`, display 
 
 | HUD Element | Compact Label | Tap-to-Inspect Popover String |
 | :--- | :--- | :--- |
-| **Food Pill** | `+{netFood}` | **Food:** Total Food income per turn across all Keeps. Each Keep's Food fills its own growth bar (`3x3 -> 5x5`) and funds peaceful village annexations. |
-| **Materials Pill** | `{materials}` `(+{netMat})` | **Materials:** Spent on tile improvements, defensive palisades, and training military units. |
-| **Coin Pill** | `{coin}` `(+{netCoin})` | **Coin:** Pays elite unit upkeep each turn and counts toward lifetime Coin milestones for Royal Decree drafts. |
-| **Favor Pill** | `{favor}` | **Royal Favor:** Earned by completing Crown Writs and events. Spend in **Crown Audience** or hold `30+` with `4+` Keeps to claim the Regent's Mandate. |
-| **Keeps Badge** | `{ownedKeeps}/{totalKeeps}` | **Dominion / Chronicle:** Hold `≥ 65%` of owned Keeps (min `5`) or eliminate all rivals in Dominion; score highest by Turn 33 in Chronicle. |
+| **Food Pill** | `+{netFood}` | **Food:** Total Food income per turn across all Keeps. Fills Keep growth (`3x3 -> 5x5 -> 7x7`) and funds peaceful village annexations. |
+| **Materials Pill** | `{materials}` `(+{netMat})` | **Materials:** Spent on tile improvements, roads, walls, outposts, and training units. |
+| **Iron Pill** | `{iron}` `(+{netIron})` | **Iron:** Forged at Iron Mines, Deep Smelteries & Forge Seats. Funds armored units, Siege Engines, Stone Walls/Bastions, Tier-3 Citadels, and heavy unit reinforcement. |
+| **Coin Pill** | `{coin}` `(+{netCoin})` | **Coin:** Pays unit & advanced building upkeep, Level-2 upgrades, Field Reinforce, and unlocks Exclusive Royal Doctrine Pairs. |
+| **Favor Pill** | `{favor}` | **Royal Favor:** Earned via Crown Writs, Watchtowers, and High Seat control. Spend in **Crown Audience** (incl. Emergency Iron Shipment) or claim the Regent's Mandate. |
+| **Keeps Badge** | `{ownedKeeps}/{totalKeeps}` | **Dominion / Chronicle:** Hold preset Supremacy share & Keeps, claim Regent's Mandate (with Tier-3 Citadels), eliminate all rivals, or lead Chronicle score (48/72/108 turns). |
 | **Season Badge** | `{seasonIcon} {season} ({turnsLeft}t)` | **Season & Year:** `Year {year} • {season}`. Shows active seasonal modifiers and turns remaining until the next season and Frontier Event. |
 | **Score Badge** | `{score} pts` | **Realm Score:** Live Chronicle score across Territory, Keeps, Decrees, Military, Exploration, Landmarks, and Crown Favor. |
 | **Turn Counter** | `Turn {turnNumber}` | **Campaign Chronicle:** Auto-saved after every move. Safe to close or switch apps anytime. |

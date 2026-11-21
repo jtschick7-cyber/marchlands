@@ -1,323 +1,225 @@
 /**
- * Marchlands (Spec v0.3) — The 25 Royal Decrees (Milestone Draft Pool)
- *
- * 6 Infrastructure Blueprints, 5 Military Charters, 14 Kingdom Doctrines.
- * Faction exclusions:
- * - decree_fletchers_guild excluded for Vane (24 eligible)
- * - decree_chivalric_order excluded for Aurelia (24 eligible)
+ * Marchlands (Spec v2.0) — 8 Mutually Exclusive Doctrine Pairs (16 Royal Decrees)
  */
 
-import type { DecreeCategory, DecreeDef, DecreeId } from '../types/game.ts';
+import type { DecreeDef, DecreeId, DecreePairDef, DecreePairId } from '../types/game.ts';
 
-export const DECREE_IDS: readonly DecreeId[] = [
-  // Category A: Infrastructure Blueprints (6)
-  'decree_iron_prospecting',
-  'decree_master_smiths',
-  'decree_timber_palisades',
-  'decree_frontier_towers',
-  'decree_chartered_markets',
-  'decree_stone_granaries',
-  // Category B: Military Charters (5)
-  'decree_fletchers_guild',
-  'decree_steel_arbalests',
-  'decree_sword_guilds',
-  'decree_chivalric_order',
-  'decree_siege_engineers',
-  // Category C: Kingdom Doctrines & Passives (14)
-  'decree_crop_rotation',
-  'decree_coppice_forestry',
-  'decree_forced_march',
-  'decree_veteran_drill',
-  'decree_shield_wall',
-  'decree_supply_lines',
-  'decree_crown_envoys',
-  'decree_border_levies',
-  'decree_field_surgeons',
-  'decree_highland_scouts',
-  'decree_toll_roads',
-  'decree_salvage_crews',
-  'decree_fletcher_volleys',
-  'decree_masonry_reinforcement',
+export const DECREE_PAIR_IDS: readonly DecreePairId[] = [
+  'pair_army',
+  'pair_warfare',
+  'pair_economy',
+  'pair_winter',
+  'pair_crown',
+  'pair_firepower',
+  'pair_medicine',
+  'pair_frontier',
 ] as const;
 
-export const DRAFT_CATEGORY_FALLBACK_ORDER: readonly DecreeCategory[] = [
-  'doctrine',
-  'infrastructure',
-  'military',
+export const DECREE_PAIRS: Readonly<Record<DecreePairId, DecreePairDef>> = {
+  pair_army: {
+    id: 'pair_army',
+    theme: 'Army Structure',
+    options: ['decree_feudal_levies', 'decree_standing_corps'],
+  },
+  pair_warfare: {
+    id: 'pair_warfare',
+    theme: 'Warfare Doctrine',
+    options: ['decree_stone_curtain', 'decree_mobile_vanguard'],
+  },
+  pair_economy: {
+    id: 'pair_economy',
+    theme: 'Economic Charter',
+    options: ['decree_chartered_guilds', 'decree_royal_extraction'],
+  },
+  pair_winter: {
+    id: 'pair_winter',
+    theme: 'Winter & Logistics',
+    options: ['decree_winter_granaries', 'decree_hardened_marchers'],
+  },
+  pair_crown: {
+    id: 'pair_crown',
+    theme: 'Crown Politics',
+    options: ['decree_regents_envoy', 'decree_iron_sovereign'],
+  },
+  pair_firepower: {
+    id: 'pair_firepower',
+    theme: 'Firepower & Siege',
+    options: ['decree_bodkin_volleys', 'decree_grand_bombardment'],
+  },
+  pair_medicine: {
+    id: 'pair_medicine',
+    theme: 'Campaign Sustainment',
+    options: ['decree_field_surgeons', 'decree_salvage_crews'],
+  },
+  pair_frontier: {
+    id: 'pair_frontier',
+    theme: 'Frontier Projection',
+    options: ['decree_border_wardens', 'decree_royal_roads'],
+  },
+};
+
+export const DECREE_IDS: readonly DecreeId[] = [
+  'decree_feudal_levies',
+  'decree_standing_corps',
+  'decree_stone_curtain',
+  'decree_mobile_vanguard',
+  'decree_chartered_guilds',
+  'decree_royal_extraction',
+  'decree_winter_granaries',
+  'decree_hardened_marchers',
+  'decree_regents_envoy',
+  'decree_iron_sovereign',
+  'decree_bodkin_volleys',
+  'decree_grand_bombardment',
+  'decree_field_surgeons',
+  'decree_salvage_crews',
+  'decree_border_wardens',
+  'decree_royal_roads',
 ] as const;
 
 export const DECREES: Readonly<Record<DecreeId, DecreeDef>> = {
-  // =========================================================================
-  // Category A: Infrastructure Blueprints (6)
-  // =========================================================================
-  decree_iron_prospecting: {
-    id: 'decree_iron_prospecting',
-    title: 'Royal Mining Charter',
-    category: 'infrastructure',
-    flavor:
-      'He who controls the iron veins of the ridge commands the rhythm of every forge in the valley.',
+  decree_feudal_levies: {
+    id: 'decree_feudal_levies',
+    pairId: 'pair_army',
+    oppositeId: 'decree_standing_corps',
+    title: 'Feudal Levy Muster',
+    flavor: 'Every hearth under your banner owes forty days of pike and bow service.',
     effectText:
-      'Unlocks construction of the Iron Mine improvement (8 Mat, requires Iron Deposit, +3 Materials/turn).',
-    unlocksImprovementId: 'iron_mine',
-    unlocksUnitId: null,
+      'Tier-1 units (Militia, Spearman, Archer, Sapper) cost -2 Mat (min 4); Tier-2+ Keeps gain +1 Army Cap.',
   },
-  decree_master_smiths: {
-    id: 'decree_master_smiths',
-    title: 'Guild of Master Smiths',
-    category: 'infrastructure',
-    flavor:
-      'Bellows fed by river timber and ridge ore turn raw pig-iron into plate fit for noble shock cavalry.',
+  decree_standing_corps: {
+    id: 'decree_standing_corps',
+    pairId: 'pair_army',
+    oppositeId: 'decree_feudal_levies',
+    title: 'Standing Professional Corps',
+    flavor: 'Drilled soldiers paid year-round outfight levies twice their number.',
     effectText:
-      'Unlocks construction of the Smithy improvement (10 Mat, +1 Materials/turn; enables Knight / Gilded Lancer training when adjacent to an Iron Mine or Deep Smeltery and a Lumber Mill).',
-    unlocksImprovementId: 'smithy',
-    unlocksUnitId: null,
+      'Rank 1+ units gain +15% Attack & +10% Defense; +50% combat XP; Field Reinforce costs -25% Coin.',
   },
-  decree_timber_palisades: {
-    id: 'decree_timber_palisades',
-    title: 'Border Palisade Edict',
-    category: 'infrastructure',
-    flavor:
-      'Sharpened oak trunks sunk six feet deep have broken more warbands than gold ever bought.',
+  decree_stone_curtain: {
+    id: 'decree_stone_curtain',
+    pairId: 'pair_warfare',
+    oppositeId: 'decree_mobile_vanguard',
+    title: 'Stone Curtain',
+    flavor: 'River mortar and dressed ashlar turn frontier palisades into unbroken ramparts.',
     effectText:
-      'Unlocks construction of the Palisade Wall (5 Mat / 3 Mat for Ironhelm; blocks enemy unit movement and grants +30% Defense to friendly units standing on the tile).',
-    unlocksImprovementId: 'palisade',
-    unlocksUnitId: null,
+      'Keeps & Fortifications gain +20% Max HP; Stone Wall upgrade costs -2 Iron; Bastion volleys +2 dmg; max cover cap 70%.',
   },
-  decree_frontier_towers: {
-    id: 'decree_frontier_towers',
-    title: 'Watchmen of the March',
-    category: 'infrastructure',
-    flavor:
-      'A single beacon lit upon a stone tower warns the valley three days before riders crest the hills.',
+  decree_mobile_vanguard: {
+    id: 'decree_mobile_vanguard',
+    pairId: 'pair_warfare',
+    oppositeId: 'decree_stone_curtain',
+    title: 'Mobile Vanguard',
+    flavor: 'Victory belongs to the banner that reaches the ridge before the mortar dries.',
     effectText:
-      'Unlocks construction of the Watchtower (7 Mat / 5 Mat for Ironhelm; permanently reveals a 5x5 fog radius and grants +30% Defense).',
-    unlocksImprovementId: 'watchtower',
-    unlocksUnitId: null,
+      'Cavalry Lance Charge gains +15% extra Attack; Infantry gain +1 Movement when starting on Plains; +1 Road travel bonus.',
   },
-  decree_chartered_markets: {
-    id: 'decree_chartered_markets',
-    title: 'Chartered Trade Markets',
-    category: 'infrastructure',
-    flavor:
-      "Where roads cross and grain wagons gather, the Crown's tax collectors are never far behind.",
+  decree_chartered_guilds: {
+    id: 'decree_chartered_guilds',
+    pairId: 'pair_economy',
+    oppositeId: 'decree_royal_extraction',
+    title: 'Chartered Guilds',
+    flavor: 'Royal market scales and salt charters bind every valley hamlet to your mint.',
     effectText:
-      'Unlocks construction of the Market (8 Mat, +3 Coin/turn, plus +1 Coin/turn per adjacent Farm or River tile).',
-    unlocksImprovementId: 'market',
-    unlocksUnitId: null,
+      'Markets & Guildhalls yield +2 Coin/turn; Peaceful Annexation costs -30% Coin and Food.',
   },
-  decree_stone_granaries: {
-    id: 'decree_stone_granaries',
-    title: 'Tithe Granaries',
-    category: 'infrastructure',
-    flavor:
-      'Dry cellars and salted stores ensure a hard frost breeds loyalty rather than famine.',
+  decree_royal_extraction: {
+    id: 'decree_royal_extraction',
+    pairId: 'pair_economy',
+    oppositeId: 'decree_chartered_guilds',
+    title: 'Royal Extraction',
+    flavor: 'Deep shafts, timber chutes, and crown smelteries keep steel pouring to the front.',
     effectText:
-      "Unlocks construction of the Granary (8 Mat, +2 Food/turn, plus +1 Food/turn to every adjacent Farm or Forester's Lodge).",
-    unlocksImprovementId: 'granary',
-    unlocksUnitId: null,
+      'Iron Mines & Deep Smelteries yield +1 Iron/turn; Quarries & Mills yield +1 Mat/turn; Smithy & Siege Workshop cost -2 Iron.',
   },
-
-  // =========================================================================
-  // Category B: Military Charters (5)
-  // =========================================================================
-  decree_fletchers_guild: {
-    id: 'decree_fletchers_guild',
-    title: "Fletchers' Guild",
-    category: 'military',
-    flavor:
-      'Seasoned ash shafts and goose-feather fletching turn woodsmen into disciplined volley archers.',
-    effectText: 'Unlocks recruitment of the Archer unit (10 Mat, 1 Coin upkeep, Ranged class, Range 2).',
-    unlocksImprovementId: null,
-    unlocksUnitId: 'archer',
-    excludedHouseIds: ['vane'],
-  },
-  decree_steel_arbalests: {
-    id: 'decree_steel_arbalests',
-    title: 'Steel Arbalests',
-    category: 'military',
-    flavor:
-      'A windlass crossbow requires half the training of a warbow and punches cleanly through shield walls.',
+  decree_winter_granaries: {
+    id: 'decree_winter_granaries',
+    pairId: 'pair_winter',
+    oppositeId: 'decree_hardened_marchers',
+    title: 'Winter Granaries',
+    flavor: 'Dry stone cellars let garrisons emerge fat and fresh when rivals starve.',
     effectText:
-      'Unlocks recruitment of the Crossbowman unit (14 Mat, 2 Coin upkeep, Ranged class, Range 2, High Attack).',
-    unlocksImprovementId: null,
-    unlocksUnitId: 'crossbowman',
+      'Granaries & Stone Silos extend Winter shelter +1 tile and grant +2 extra passive healing nearby.',
   },
-  decree_sword_guilds: {
-    id: 'decree_sword_guilds',
-    title: 'Chartered Men-at-Arms',
-    category: 'military',
-    flavor:
-      'Mail hauberks, poleaxes, and heavy longswords turn seasoned footmen into wall-breakers who cleave straight through pike lines.',
+  decree_hardened_marchers: {
+    id: 'decree_hardened_marchers',
+    pairId: 'pair_winter',
+    oppositeId: 'decree_winter_granaries',
+    title: 'Hardened Marchers',
+    flavor: 'Frozen rivers are highways for soldiers who wear wool beneath their mail.',
     effectText:
-      'Unlocks recruitment of the Men-at-Arms unit (12 Mat, 1 Coin upkeep, infantry class, counters spearman).',
-    unlocksImprovementId: null,
-    unlocksUnitId: 'men_at_arms',
+      'All friendly units ignore Winter -1 Movement, halve Winter attrition, and gain +15% Attack during Winter.',
   },
-  decree_chivalric_order: {
-    id: 'decree_chivalric_order',
-    title: 'Chivalric Order',
-    category: 'military',
-    flavor:
-      'Barded warhorses and heavy lances shatter archer lines before a second volley can be loosed.',
+  decree_regents_envoy: {
+    id: 'decree_regents_envoy',
+    pairId: 'pair_crown',
+    oppositeId: 'decree_iron_sovereign',
+    title: "Regent's Envoy",
+    flavor: 'Silken seals and punctual couriers carry more weight in Council than braggarts.',
     effectText:
-      'Unlocks recruitment of the Knight unit (18 Mat, 3 Coin upkeep, Cavalry class; requires a Keep with an active Smithy adjacency combo).',
-    unlocksImprovementId: null,
-    unlocksUnitId: 'knight',
-    excludedHouseIds: ['aurelia'],
+      '+50% Favor (rounded up) from Crown Writs and Watchtowers; Crown Audience actions cost -1 Favor (min 1).',
   },
-  decree_siege_engineers: {
-    id: 'decree_siege_engineers',
-    title: 'Siege Engineers',
-    category: 'military',
-    flavor:
-      'Iron-capped battering rams wheeled under timber roofs reduce stubborn palisades to splinters.',
+  decree_iron_sovereign: {
+    id: 'decree_iron_sovereign',
+    pairId: 'pair_crown',
+    oppositeId: 'decree_regents_envoy',
+    title: 'Iron Sovereign',
+    flavor: 'A dying council signs whatever parchment stands behind twenty thousand pikes.',
     effectText:
-      'Unlocks recruitment of the Siege Ram unit (16 Mat, 2 Coin upkeep, Siege class; 8 Attack vs. Keeps, Palisades, and Watchtowers).',
-    unlocksImprovementId: null,
-    unlocksUnitId: 'siege_ram',
+      '+10% Atk & Def vs Houses with more Favor; double Pillage & Commander Ransom Coin; violent village seizure loses 0 Favor.',
   },
-
-  // =========================================================================
-  // Category C: Kingdom Doctrines & Passives (14)
-  // =========================================================================
-  decree_crop_rotation: {
-    id: 'decree_crop_rotation',
-    title: 'Three-Field Rotation',
-    category: 'doctrine',
-    flavor:
-      'Resting one strip in clover while sowing two in barley doubles the yield of river loam.',
-    effectText: "All existing and future Farms and Forester's Lodges generate +1 Food/turn.",
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_coppice_forestry: {
-    id: 'decree_coppice_forestry',
-    title: 'Coppice Forestry',
-    category: 'doctrine',
-    flavor:
-      'Harvesting timber in managed cycles keeps the sawmills fed without stripping the canopy bare.',
-    effectText: 'All existing and future Lumber Mills generate +1 Materials/turn.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_forced_march: {
-    id: 'decree_forced_march',
-    title: 'Forced March',
-    category: 'doctrine',
-    flavor:
-      'Light packs and double-time drums push foot soldiers across leagues of mud before dusk.',
+  decree_bodkin_volleys: {
+    id: 'decree_bodkin_volleys',
+    pairId: 'pair_firepower',
+    oppositeId: 'decree_grand_bombardment',
+    title: 'Bodkin Volleys',
+    flavor: 'Needle-hardened iron tips turn an ambush hill into a slaughterhouse.',
     effectText:
-      'All infantry and spearman units gain +1 Movement (does not apply to cavalry, ranged, or siege).',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Ranged Overwatch deals 110% damage (up from 85%); Ranged counter bonus vs Infantry rises from +40% to +65%.',
   },
-  decree_veteran_drill: {
-    id: 'decree_veteran_drill',
-    title: 'Veteran Drill',
-    category: 'doctrine',
-    flavor: 'Daily spear-line formations on the muster field steady green levies under pressure.',
-    effectText: 'All friendly military units gain +15% Attack during primary strikes and retaliations.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_shield_wall: {
-    id: 'decree_shield_wall',
-    title: 'Locked Shield Wall',
-    category: 'doctrine',
-    flavor: 'Overlapping oak boards turn a spear line into a mobile wooden rampart.',
+  decree_grand_bombardment: {
+    id: 'decree_grand_bombardment',
+    pairId: 'pair_firepower',
+    oppositeId: 'decree_bodkin_volleys',
+    title: 'Grand Bombardment',
+    flavor: 'Heavy counterweight beams reduce stone citadels to chalk dust from half a league off.',
     effectText:
-      'Friendly spearman and infantry units gain +20% Defense when adjacent to at least one other friendly unit.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_supply_lines: {
-    id: 'decree_supply_lines',
-    title: 'Quartermaster Ledger',
-    category: 'doctrine',
-    flavor: 'Standardized wagon manifests cut spoilage and graft across every garrison.',
-    effectText: 'Reduces the per-turn Coin upkeep of all friendly units by 1 (to a minimum of 0 Coin/turn).',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_crown_envoys: {
-    id: 'decree_crown_envoys',
-    title: 'Crown Envoys',
-    category: 'doctrine',
-    flavor:
-      'Silken banners, salt gifts, and royal tax exemptions persuade frontier elders to kneel without bloodshed.',
-    effectText:
-      'Reduces the cost of Peaceful Village Annexation by 40% (from 12 Food + 15 Coin down to 7 Food + 9 Coin).',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_border_levies: {
-    id: 'decree_border_levies',
-    title: 'Frontier Muster',
-    category: 'doctrine',
-    flavor: 'Every hearth in a newly raised keep owes forty days of spear service to the banner.',
-    effectText: 'Training militia and spearman units costs 2 fewer Materials (minimum 4 Mat).',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Trebuchets deal 3 splash damage to enemies adjacent to their target; Siege Rams & Sappers gain +2 Structure Attack.',
   },
   decree_field_surgeons: {
     id: 'decree_field_surgeons',
+    pairId: 'pair_medicine',
+    oppositeId: 'decree_salvage_crews',
     title: 'Field Chirurgeons',
-    category: 'doctrine',
-    flavor:
-      'Boiled linen, willow bark, and cautery irons keep seasoned soldiers alive between skirmishes.',
+    flavor: 'Boiled linen and willow-bark poultices save veterans who took years to train.',
     effectText:
-      'Friendly units that end their turn without moving or attacking heal 6 HP instead of the standard 3 HP.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_highland_scouts: {
-    id: 'decree_highland_scouts',
-    title: 'Outrider Cartography',
-    category: 'doctrine',
-    flavor: 'Surveyors riding ahead of the column chart every ridge, ford, and ambush hollow.',
-    effectText:
-      'All friendly units gain +1 Sight Radius, and cavalry units gain +15% Attack when attacking on Plains tiles.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
-  },
-  decree_toll_roads: {
-    id: 'decree_toll_roads',
-    title: 'Royal Road Tolls',
-    category: 'doctrine',
-    flavor: 'Cobbled milestones and guarded river ferries turn domestic travel into steady silver.',
-    effectText: 'Every Keep and Stronghold generates +2 Coin/turn.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Stationary passive healing increases +3 HP/turn; active Field Reinforce restores +12 HP instead of +8 HP.',
   },
   decree_salvage_crews: {
     id: 'decree_salvage_crews',
+    pairId: 'pair_medicine',
+    oppositeId: 'decree_field_surgeons',
     title: 'Battlefield Salvage',
-    category: 'doctrine',
-    flavor:
-      'Stripping shattered shields, arrowheads, and felled timbers turns victory into immediate material.',
+    flavor: 'Every shattered mail shirt and felled timber cart feeds the next campaign.',
     effectText:
-      'Defeating an enemy unit or clearing an Outlaw Camp awards +4 Materials directly to your treasury.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Slaying enemy units awards +4 Mat (+1 Iron if target cost Iron); clearing Outlaw Camps awards +2 extra Iron.',
   },
-  decree_fletcher_volleys: {
-    id: 'decree_fletcher_volleys',
-    title: 'Bodkin Quivers',
-    category: 'doctrine',
-    flavor: 'Narrow, hardened iron tips find the seams in heavy mail and tower shields.',
+  decree_border_wardens: {
+    id: 'decree_border_wardens',
+    pairId: 'pair_frontier',
+    oppositeId: 'decree_royal_roads',
+    title: 'Border Wardens',
+    flavor: 'Distant timber forts and hillside beacons claim the wild ridges before rivals arrive.',
     effectText:
-      'Friendly ranged units increase their Counter-Triangle bonus against spearman units from +40% to +65%.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Frontier Outpost cap increases 2 -> 3; Watchtowers & Bastions gain +1 Sight and cost -2 Materials.',
   },
-  decree_masonry_reinforcement: {
-    id: 'decree_masonry_reinforcement',
-    title: 'Mortar & Stonework',
-    category: 'doctrine',
-    flavor: 'Packing timber palisades with river stone stops battering rams dead in their tracks.',
+  decree_royal_roads: {
+    id: 'decree_royal_roads',
+    pairId: 'pair_frontier',
+    oppositeId: 'decree_border_wardens',
+    title: 'Royal Road Network',
+    flavor: 'Cobbled causeways shrink a thirty-league frontier into a three-day forced march.',
     effectText:
-      'Friendly Keeps, Palisades, and Watchtowers grant +45% Defense (up from +30%/+35%) and take 25% less damage from siege units.',
-    unlocksImprovementId: null,
-    unlocksUnitId: null,
+      'Roads cost only 1 Material to build; units starting their turn on a Road gain +1 Movement.',
   },
 };

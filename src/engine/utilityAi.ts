@@ -1,11 +1,11 @@
 /**
- * Marchlands (Spec v0.3) — AI Single Entry Point (`runAiTurn`)
+ * Marchlands (Spec v2.0) — AI Single Entry Point (`runAiTurn`)
  *
  * Execution order:
- * 1. Resolve any start-of-turn pending synchronous AI decisions (specializations/drafts)
+ * 1. Resolve any start-of-turn pending synchronous AI decisions (specs/charters/traits/honors/doctrines)
  * 2. Strategic layer (`updateStrategicPlan`)
- * 3. Tactical layer (`runTacticalLayer`: beam search on TacticalSimState + canonical replay)
- * 4. Economy layer (`runEconomyLayer`: <= MAX_AI_ACTIONS = 12)
+ * 3. Tactical layer (`runTacticalLayer`: Arrow Slits, Commander skills, beam search, Outposts, Reinforce)
+ * 4. Economy layer (`runEconomyLayer`: <= MAX_AI_ACTIONS = 16)
  * 5. End turn (`endHouseTurn`)
  */
 
@@ -46,6 +46,9 @@ export function runAiTurnWithMetrics(
         singleAttackerUnitId: null,
         oneShotProtectionTriggers: 0,
         braceTriggers: 0,
+        commanderSkillsUsed: 0,
+        outpostsFounded: 0,
+        reinforcesUsed: 0,
         economyActionsUsed: 0,
       },
     };
@@ -64,6 +67,9 @@ export function runAiTurnWithMetrics(
         singleAttackerUnitId: null,
         oneShotProtectionTriggers: 0,
         braceTriggers: 0,
+        commanderSkillsUsed: 0,
+        outpostsFounded: 0,
+        reinforcesUsed: 0,
         economyActionsUsed: 0,
       },
     };
@@ -84,11 +90,16 @@ export function runAiTurnWithMetrics(
   cur = updateStrategicPlan(cur, houseId, influence);
 
   // 2. Tactical layer
+  const prevKeepsRef = cur.keeps;
+  const prevOutpostsRef = cur.outposts;
   const tactical = runTacticalLayer(cur, houseId, influence);
   cur = tactical.state;
 
-  // 3. Economy layer (re-use updated fog-honest influence if needed)
-  const postCombatInfluence = buildInfluenceMaps(cur, houseId);
+  // 3. Economy layer (only rebuild influence maps if Keeps/Outposts changed during combat)
+  const postCombatInfluence =
+    cur.keeps !== prevKeepsRef || cur.outposts !== prevOutpostsRef
+      ? buildInfluenceMaps(cur, houseId)
+      : influence;
   const econ = runEconomyLayer(cur, houseId, postCombatInfluence);
   cur = econ.state;
 

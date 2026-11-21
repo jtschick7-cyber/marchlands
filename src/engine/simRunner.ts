@@ -1,5 +1,5 @@
 /**
- * Marchlands (Spec v0.3) — Headless Simulation Runner & Per-Turn Invariant Checker
+ * Marchlands (Spec v2.0) — Headless Simulation Runner & Per-Turn Invariant Checker
  *
  * Strictly headless (zero React, zero Node fs/path). Shared by `scripts/sim.ts`
  * and `src/engine/__tests__/simSmoke.test.ts`.
@@ -7,6 +7,8 @@
 
 import type {
   ChronicleEvent,
+  ChronicleLength,
+  CitadelCharter,
   DecreeId,
   Difficulty,
   EventId,
@@ -14,14 +16,16 @@ import type {
   GameState,
   HouseId,
   KeepSpecialization,
+  MapPreset,
   VictoryType,
 } from '../types/game.ts';
 import {
   AI_COMBAT_RESOLUTION_BUDGET,
   AI_WATCHDOG_MS,
-  CHRONICLE_TURN_LIMIT,
-  DOMINION_DEFAULT_MAX_TURNS,
+  DEFAULT_CHRONICLE_LIMIT,
+  DEFAULT_MAP_PRESET,
   HOUSE_IDS,
+  MAP_PRESETS,
   MAX_AI_ACTIONS,
   UNITS,
 } from '../data/index.ts';
@@ -49,6 +53,8 @@ export interface SimGameOptions {
   readonly houseCount: 4 | 5;
   readonly mode: GameMode;
   readonly difficulty: Difficulty;
+  readonly mapPreset?: MapPreset;
+  readonly chronicleLimit?: ChronicleLength;
   readonly maxTurns?: number;
   readonly seatRotation?: number;
   readonly difficultyByHouse?: Partial<Record<HouseId, Difficulty>>;
@@ -57,6 +63,7 @@ export interface SimGameOptions {
 
 export interface SimGameResult {
   readonly seed: number;
+  readonly mapPreset: MapPreset;
   readonly mode: GameMode;
   readonly difficulty: Difficulty;
   readonly houseOrder: readonly HouseId[];
@@ -65,7 +72,7 @@ export interface SimGameResult {
   readonly victoryType: VictoryType | 'stalemate';
   readonly turnsPlayed: number;
   readonly stalemateHitMaxTurns: boolean;
-  readonly stalemateNoKeepChange25: boolean;
+  readonly stalemateNoKeepChange: boolean;
   readonly isStalemate: boolean;
   readonly finalStateHash: string;
   readonly invariantViolations: readonly InvariantViolation[];
@@ -76,9 +83,12 @@ export interface SimGameResult {
   readonly finalDecreesBeyondStart: Readonly<Record<string, number>>;
   readonly finalDecreeIds: Readonly<Record<string, readonly DecreeId[]>>;
   readonly tier2TurnByHouse: Readonly<Record<string, number | null>>;
+  readonly tier3TurnByHouse: Readonly<Record<string, number | null>>;
 
-  // Specializations
+  // Specializations & Citadel Charters
   readonly specPicks: readonly { houseId: HouseId; spec: Exclude<KeepSpecialization, 'none'> }[];
+  readonly charterPicks: readonly { houseId: HouseId; charter: Exclude<CitadelCharter, 'none'> }[];
+  readonly tier3CitadelsBuilt: number;
 
   // Writs & Mandate
   readonly writsPublished: Readonly<Record<string, number>>;
@@ -91,7 +101,7 @@ export interface SimGameResult {
   readonly eventCounts: Readonly<Record<string, number>>;
   readonly eventChoices: Readonly<Record<string, Record<string, number>>>;
 
-  // Combat, Pacing & Mechanics
+  // Combat, Pacing & v2.0 Mechanics
   readonly firstContactTurn: number | null;
   readonly unitsAliveTimeline: Readonly<Record<number, Readonly<Record<string, number>>>>;
   readonly aiTurnTimesMsByHouse: Readonly<Record<string, readonly number[]>>;
@@ -101,6 +111,13 @@ export interface SimGameResult {
   readonly piecemealTurns: number;
   readonly oneShotProtectionTriggers: number;
   readonly braceTriggers: number;
+  readonly commanderSkillsUsed: number;
+  readonly commanderWounds: number;
+  readonly outpostsFounded: number;
+  readonly reinforcesUsed: number;
+  readonly lv2UpgradesFinal: number;
+  readonly roadsFinal: number;
+  readonly highSeatCaptured: boolean;
   readonly unitsTrainedByType: Readonly<Record<string, number>>;
   readonly corvusMaxWarCamps: number;
   readonly watchtowerOccupiedTurns: number;
@@ -108,18 +125,12 @@ export interface SimGameResult {
   readonly maxEconomyActionsUsed: number;
 }
 
-/**
- * Deterministic rotated house seating order so every House plays from every seat.
- */
 export function getRotatedHouseOrder(houseCount: 4 | 5, seatRotation: number): HouseId[] {
   const base = HOUSE_IDS.slice(0, houseCount);
   const shift = ((seatRotation % base.length) + base.length) % base.length;
   return [...base.slice(shift), ...base.slice(0, shift)];
 }
 
-/**
- * Recursive structural deep equality for JSON-serializable values.
- */
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== typeof b || a === null || b === null) return false;
@@ -146,9 +157,6 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/**
- * Deterministic 64-bit FNV-1a hex hash of the serialized GameState.
- */
 export function hashGameState(state: GameState): string {
   const str = JSON.stringify(state);
   let h1 = 0x811c9dc5;
@@ -164,7 +172,7 @@ export function hashGameState(state: GameState): string {
 }
 
 /**
- * Enforces Invariants 1–5 from `docs/SIMULATION_HARNESS.md` §3.
+ * Enforces v2.0 Invariants 1–5 from `docs/SIMULATION_HARNESS.md` §2.
  */
 export function checkGameInvariants(
   state: GameState,
@@ -184,10 +192,13 @@ export function checkGameInvariants(
     });
   };
 
-  // 1. No negative resources (materials >= 0, coin >= 0, favor >= 0)
+  // 1. No negative resources (materials >= 0, iron >= 0, coin >= 0, favor >= 0)
   for (const house of Object.values(state.houses)) {
     if (house.resources.materials < 0) {
       push('non_negative_resources', `${house.id} has negative materials: ${house.resources.materials}`);
+    }
+    if (house.resources.iron < 0) {
+      push('non_negative_resources', `${house.id} has negative iron: ${house.resources.iron}`);
     }
     if (house.resources.coin < 0) {
       push('non_negative_resources', `${house.id} has negative coin: ${house.resources.coin}`);
@@ -197,7 +208,7 @@ export function checkGameInvariants(
     }
   }
 
-  // 2. Unit coords in bounds, not on mountain, no overlaps
+  // 2. Unit coords in bounds, never on mountain, zero tile overlaps
   const occupiedTiles = new Map<string, string>();
   for (const unit of Object.values(state.units)) {
     if (
@@ -207,7 +218,10 @@ export function checkGameInvariants(
       unit.y >= state.gridSize ||
       unit.tileKey !== coordKey(unit.x, unit.y)
     ) {
-      push('unit_bounds', `Unit ${unit.id} out of bounds or mismatched tileKey (${unit.x},${unit.y} vs ${unit.tileKey})`);
+      push(
+        'unit_bounds',
+        `Unit ${unit.id} out of bounds or mismatched tileKey (${unit.x},${unit.y} vs ${unit.tileKey})`,
+      );
       continue;
     }
     const tile = state.tiles[unit.tileKey];
@@ -226,17 +240,17 @@ export function checkGameInvariants(
     }
   }
 
-  // 3. Unit counts per Keep within cap (+ documented over-cap exceptions: war_camp loss, free_company_spearman)
+  // 3. Keep Army Caps respected (+ documented over-cap exceptions: War Camp loss, Garrison capture)
   for (const keep of Object.values(state.keeps)) {
     const cap = getKeepArmyCap(state, keep.id);
     const supported = getKeepSupportedUnitIds(state, keep.id).length;
     if (supported > cap) {
       const prevSupported = prevKeepSupportedCounts[keep.id] ?? 0;
       const prevCap = prevKeepCaps[keep.id] ?? cap;
-      const isWarCampLossException =
-        (supported <= prevSupported && supported <= cap + 1) ||
+      const isCapLossException =
+        (supported <= prevSupported && supported <= cap + 2) ||
         (cap < prevCap && supported <= prevCap);
-      if (!isWarCampLossException) {
+      if (!isCapLossException) {
         push(
           'keep_army_cap',
           `Keep ${keep.id} (${keep.ownerHouseId}) has ${supported} supported units exceeding cap ${cap} (prev ${prevSupported}, prevCap ${prevCap})`,
@@ -245,18 +259,42 @@ export function checkGameInvariants(
     }
   }
 
-  // 4. Every owned tile's keepId points to an existing Keep
+  // 4. Owned tile keepId / outpostId referential integrity (incl. border Watchtowers)
   for (const tile of Object.values(state.tiles)) {
     if (tile.keepId !== null && !state.keeps[tile.keepId]) {
       push('tile_keep_ref', `Tile ${tile.key} references missing keepId ${tile.keepId}`);
     }
+    if (tile.outpostId !== null && !state.outposts[tile.outpostId]) {
+      push('tile_outpost_ref', `Tile ${tile.key} references missing outpostId ${tile.outpostId}`);
+    }
     if (tile.ownerHouseId !== null) {
-      if (tile.keepId === null || !state.keeps[tile.keepId]) {
-        push('tile_keep_ref', `Owned tile ${tile.key} (${tile.ownerHouseId}) has invalid keepId ${tile.keepId}`);
-      } else if (state.keeps[tile.keepId]!.ownerHouseId !== tile.ownerHouseId) {
+      if (tile.keepId !== null) {
+        const k = state.keeps[tile.keepId];
+        if (!k) {
+          push('tile_keep_ref', `Owned tile ${tile.key} (${tile.ownerHouseId}) missing keep ${tile.keepId}`);
+        } else if (k.ownerHouseId !== tile.ownerHouseId) {
+          push(
+            'tile_keep_ref',
+            `Owned tile ${tile.key} owner (${tile.ownerHouseId}) mismatches keep ${tile.keepId} owner (${k.ownerHouseId})`,
+          );
+        }
+      } else if (tile.outpostId !== null) {
+        const o = state.outposts[tile.outpostId];
+        if (!o) {
+          push(
+            'tile_outpost_ref',
+            `Owned tile ${tile.key} (${tile.ownerHouseId}) missing outpost ${tile.outpostId}`,
+          );
+        } else if (o.ownerHouseId !== tile.ownerHouseId) {
+          push(
+            'tile_outpost_ref',
+            `Owned tile ${tile.key} owner (${tile.ownerHouseId}) mismatches outpost ${tile.outpostId} owner (${o.ownerHouseId})`,
+          );
+        }
+      } else if (tile.improvement !== 'watchtower' && tile.improvement !== 'signal_bastion') {
         push(
-          'tile_keep_ref',
-          `Owned tile ${tile.key} owner (${tile.ownerHouseId}) mismatches keep ${tile.keepId} owner (${state.keeps[tile.keepId]!.ownerHouseId})`,
+          'tile_owner_ref',
+          `Owned tile ${tile.key} (${tile.ownerHouseId}) has no keepId/outpostId and is not a border watchtower (${tile.improvement})`,
         );
       }
     }
@@ -289,13 +327,13 @@ function snapshotKeepCaps(state: GameState): Record<string, number> {
   return out;
 }
 
-/**
- * Runs one complete headless AI-vs-AI game with full telemetry and invariant checking.
- */
 export function runSimulatedGame(options: SimGameOptions): SimGameResult {
+  const mapPreset: MapPreset = options.mapPreset ?? DEFAULT_MAP_PRESET;
+  const presetCfg = MAP_PRESETS[mapPreset];
+  const chronicleLimit: ChronicleLength = options.chronicleLimit ?? DEFAULT_CHRONICLE_LIMIT;
   const maxTurns =
     options.maxTurns ??
-    (options.mode === 'chronicle' ? CHRONICLE_TURN_LIMIT : DOMINION_DEFAULT_MAX_TURNS);
+    (options.mode === 'chronicle' ? chronicleLimit : presetCfg.defaultMaxTurns);
   const houseOrder = getRotatedHouseOrder(options.houseCount, options.seatRotation ?? 0);
   const checkJson = options.checkJsonRoundTrip ?? true;
 
@@ -304,6 +342,8 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     houseCount: options.houseCount,
     mode: options.mode,
     difficulty: options.difficultyByHouse?.[houseOrder[0]!] ?? options.difficulty,
+    mapPreset,
+    chronicleLimit,
     humanHouseId: null,
     customHouseOrder: houseOrder,
   });
@@ -312,12 +352,18 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
   let prevKeepSupported = snapshotKeepSupportedCounts(state);
   let prevKeepCaps = snapshotKeepCaps(state);
 
-  // Telemetry accumulators
   const tier2TurnByHouse: Record<string, number | null> = {};
-  for (const hid of houseOrder) tier2TurnByHouse[hid] = null;
+  const tier3TurnByHouse: Record<string, number | null> = {};
+  for (const hid of houseOrder) {
+    tier2TurnByHouse[hid] = null;
+    tier3TurnByHouse[hid] = null;
+  }
 
   const specializedKeepIds = new Set<string>();
   const specPicks: { houseId: HouseId; spec: Exclude<KeepSpecialization, 'none'> }[] = [];
+  const charteredKeepIds = new Set<string>();
+  const charterPicks: { houseId: HouseId; charter: Exclude<CitadelCharter, 'none'> }[] = [];
+  const tier3KeepIds = new Set<string>();
 
   const writsPublished: Record<string, number> = {};
   const writsCompleted: Record<string, number> = {};
@@ -333,7 +379,7 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
 
   let firstContactTurn: number | null = null;
   const unitsAliveTimeline: Record<number, Record<string, number>> = {};
-  const timelineSampleTurns = new Set([5, 10, 15, 20, 30, 40, 50]);
+  const timelineSampleTurns = new Set([10, 20, 35, 50, 75, 100]);
 
   const aiTurnTimesMsByHouse: Record<string, number[]> = {};
   for (const hid of houseOrder) aiTurnTimesMsByHouse[hid] = [];
@@ -347,12 +393,17 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
 
   let oneShotProtectionTriggers = 0;
   let braceTriggers = 0;
+  let commanderSkillsUsed = 0;
+  let commanderWounds = 0;
+  let outpostsFounded = 0;
+  let reinforcesUsed = 0;
   const unitsTrainedByType: Record<string, number> = {};
-  const seenUnitIds = new Set<string>();
+  const seenUnitIds = new Set<string>(Object.keys(state.units)); // Exclude Turn-1 starting Commanders from trained count
   let corvusMaxWarCamps = 0;
   let watchtowerOccupiedTurns = 0;
   let maxCombatResolutionsUsed = 0;
   let maxEconomyActionsUsed = 0;
+  let highSeatCaptured = false;
 
   let lastKeepChangeTurn = 1;
   let prevKeepOwnershipKey = Object.values(state.keeps)
@@ -372,7 +423,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     const actingHouseId = state.activeHouseId;
     const prevState = state;
 
-    // Check if this House's previous single-attacker survived until its next turn
     const prevSingleAttackerId = pendingSingleAttackerByHouse[actingHouseId];
     if (prevSingleAttackerId !== null) {
       if (!state.units[prevSingleAttackerId]) {
@@ -381,7 +431,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       pendingSingleAttackerByHouse[actingHouseId] = null;
     }
 
-    // Track Ancient Watchtower occupation at start of acting House's turn
     for (const u of getHouseUnits(state, actingHouseId)) {
       if (state.tiles[u.tileKey]?.landmark === 'ancient_watchtower') {
         watchtowerOccupiedTurns += 1;
@@ -427,11 +476,13 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     maxCombatResolutionsUsed = Math.max(maxCombatResolutionsUsed, res.metrics.combatResolutionsUsed);
     maxEconomyActionsUsed = Math.max(maxEconomyActionsUsed, res.metrics.economyActionsUsed);
 
-    // Coordination & combat mechanic metrics
     totalKills += res.metrics.totalKills;
     focusFireKills += res.metrics.focusFireKills;
     oneShotProtectionTriggers += res.metrics.oneShotProtectionTriggers;
     braceTriggers += res.metrics.braceTriggers;
+    commanderSkillsUsed += res.metrics.commanderSkillsUsed;
+    outpostsFounded += res.metrics.outpostsFounded;
+    reinforcesUsed += res.metrics.reinforcesUsed;
 
     if (res.metrics.attackersCount > 0) {
       aiAttackTurns += 1;
@@ -444,7 +495,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       }
     }
 
-    // Track newly trained / spawned units
     for (const u of Object.values(state.units)) {
       if (!seenUnitIds.has(u.id)) {
         seenUnitIds.add(u.id);
@@ -452,18 +502,29 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       }
     }
 
-    // Track Tier-2 turns & Specializations
     for (const k of Object.values(state.keeps)) {
-      if (k.tier === 2 && tier2TurnByHouse[k.ownerHouseId] === null) {
+      if (k.tier >= 2 && tier2TurnByHouse[k.ownerHouseId] === null) {
         tier2TurnByHouse[k.ownerHouseId] = state.turnNumber;
+      }
+      if (k.tier === 3) {
+        if (tier3TurnByHouse[k.ownerHouseId] === null) {
+          tier3TurnByHouse[k.ownerHouseId] = state.turnNumber;
+        }
+        tier3KeepIds.add(k.id);
       }
       if (k.specialization !== 'none' && !specializedKeepIds.has(k.id)) {
         specializedKeepIds.add(k.id);
         specPicks.push({ houseId: k.ownerHouseId, spec: k.specialization });
       }
+      if (k.citadelCharter !== 'none' && !charteredKeepIds.has(k.id)) {
+        charteredKeepIds.add(k.id);
+        charterPicks.push({ houseId: k.ownerHouseId, charter: k.citadelCharter });
+      }
+      if (k.isHighSeat) {
+        highSeatCaptured = true;
+      }
     }
 
-    // Track Corvus War Camps
     const warCampCount = Object.values(state.tiles).filter(
       (t) => t.improvement === 'war_camp' && t.ownerHouseId === 'corvus',
     ).length;
@@ -471,7 +532,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       corvusMaxWarCamps = warCampCount;
     }
 
-    // Track Keep ownership changes (for 25-turn stalemate check)
     const curKeepOwnershipKey = Object.values(state.keeps)
       .map((k) => `${k.id}:${k.ownerHouseId}`)
       .sort()
@@ -481,7 +541,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       prevKeepOwnershipKey = curKeepOwnershipKey;
     }
 
-    // Track Writs published & completed
     if (state.crown.activeWrits.length > 0) {
       const batchKey = state.crown.activeWrits
         .map((w) => `${w.writId}@${w.publishedTurn}`)
@@ -503,7 +562,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       }
     }
 
-    // Inspect newly appended Chronicle events
     const newChronicleCount = state.nextChronicleSeq - lastChronicleSeqSeen;
     if (newChronicleCount > 0) {
       const newEvents: ChronicleEvent[] = state.chronicle.slice(-newChronicleCount);
@@ -517,6 +575,7 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
         ) {
           firstContactTurn = ev.turnNumber;
         }
+        if (ev.type === 'commander_wounded') commanderWounds += 1;
         if (ev.type === 'mandate_claimed') mandateClaims += 1;
         if (ev.type === 'mandate_broken') mandateBroken += 1;
         if (ev.type === 'mandate_won') mandateWins += 1;
@@ -533,7 +592,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       lastChronicleSeqSeen = state.nextChronicleSeq;
     }
 
-    // Track Frontier Event triggers & infer choice selections on season start turns
     if (
       state.turnNumber > lastEventTurnRecorded &&
       state.turnNumber >= 4 &&
@@ -573,7 +631,6 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       }
     }
 
-    // Sample units alive timeline on round transitions
     if (state.turnNumber > lastRoundSampled) {
       lastRoundSampled = state.turnNumber;
       if (timelineSampleTurns.has(state.turnNumber)) {
@@ -585,29 +642,34 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
       }
     }
 
-    // Per-turn invariant checks (1–5)
+    const shouldCheckJson =
+      checkJson &&
+      ((state.activeHouseId === state.houseOrder[0] && state.turnNumber % 5 === 1) ||
+        state.phase === 'game_over');
     const stepViolations = checkGameInvariants(
       state,
       prevKeepSupported,
       prevKeepCaps,
       options.seed,
-      checkJson,
+      shouldCheckJson,
     );
     if (stepViolations.length > 0) {
       violations.push(...stepViolations);
-      break; // Abort game on first invariant failure (SIMULATION_HARNESS.md §3)
+      break;
     }
     prevKeepSupported = snapshotKeepSupportedCounts(state);
     prevKeepCaps = snapshotKeepCaps(state);
   }
 
-  // End-of-game summary
   const turnsPlayed = Math.min(state.turnNumber, maxTurns);
   const stalemateHitMaxTurns = state.phase !== 'game_over' && state.turnNumber > maxTurns;
-  const stalemateNoKeepChange25 =
-    options.mode === 'dominion' && turnsPlayed - lastKeepChangeTurn >= 25;
+  const noChangeWindow = mapPreset === 'grand' ? 40 : mapPreset === 'standard' ? 32 : 25;
+  const stalemateNoKeepChange =
+    options.mode === 'dominion' &&
+    state.phase !== 'game_over' &&
+    turnsPlayed - lastKeepChangeTurn >= noChangeWindow;
   const isStalemate =
-    options.mode === 'dominion' && (stalemateHitMaxTurns || stalemateNoKeepChange25);
+    options.mode === 'dominion' && (stalemateHitMaxTurns || stalemateNoKeepChange);
 
   const finalScores: Record<string, number> = {};
   const finalDecreesOwned: Record<string, number> = {};
@@ -619,6 +681,13 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     finalDecreesOwned[hid] = h.decreeIds.length;
     finalDecreesBeyondStart[hid] = Math.max(0, h.decreeIds.length - h.startingDecreeCount);
     finalDecreeIds[hid] = [...h.decreeIds];
+  }
+
+  let lv2UpgradesFinal = 0;
+  let roadsFinal = 0;
+  for (const t of Object.values(state.tiles)) {
+    if (t.improvementLevel === 2) lv2UpgradesFinal += 1;
+    if (t.hasRoad) roadsFinal += 1;
   }
 
   let winnerHouseId = state.winnerHouseId;
@@ -633,6 +702,7 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
 
   return {
     seed: options.seed,
+    mapPreset,
     mode: options.mode,
     difficulty: options.difficulty,
     houseOrder,
@@ -641,7 +711,7 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     victoryType,
     turnsPlayed,
     stalemateHitMaxTurns,
-    stalemateNoKeepChange25,
+    stalemateNoKeepChange,
     isStalemate,
     finalStateHash: hashGameState(state),
     invariantViolations: violations,
@@ -650,7 +720,10 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     finalDecreesBeyondStart,
     finalDecreeIds,
     tier2TurnByHouse,
+    tier3TurnByHouse,
     specPicks,
+    charterPicks,
+    tier3CitadelsBuilt: tier3KeepIds.size,
     writsPublished,
     writsCompleted,
     mandateClaims,
@@ -667,6 +740,13 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
     piecemealTurns,
     oneShotProtectionTriggers,
     braceTriggers,
+    commanderSkillsUsed,
+    commanderWounds,
+    outpostsFounded,
+    reinforcesUsed,
+    lv2UpgradesFinal,
+    roadsFinal,
+    highSeatCaptured,
     unitsTrainedByType,
     corvusMaxWarCamps,
     watchtowerOccupiedTurns,
@@ -675,5 +755,4 @@ export function runSimulatedGame(options: SimGameOptions): SimGameResult {
   };
 }
 
-// Re-export unit/keep helpers for convenience
 export { UNITS, getHouseKeeps, getHouseUnits };

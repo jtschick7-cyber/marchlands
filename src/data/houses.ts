@@ -1,5 +1,5 @@
 /**
- * Marchlands (Spec v0.3) — Playable Houses & Settlement Name Pools (50 Names)
+ * Marchlands (Spec v2.0) — Playable Houses, Lord-Commanders & Settlement Pools
  */
 
 import type { HouseDef, HouseId } from '../types/game.ts';
@@ -18,9 +18,15 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
     name: 'House Vane',
     epithet: 'Woodland Wardens',
     passiveName: 'Untouched Canopy',
-    passiveDescription: '+1 Materials per untouched Forest tile inside your territory.',
+    passiveDescription: '+1 Materials per Forest tile inside your territory.',
     uniqueImprovementId: 'foresters_lodge',
     signatureUnitId: 'longbowman',
+    commanderName: 'Warden-Marshal',
+    commanderSkillId: 'wardens_volley',
+    commanderSkillName: "Warden's Volley",
+    commanderSkillDesc:
+      'Reveals 7x7; allies within 2 tiles ignore Forest cost & gain +15% Forest/Hills Atk; ranged allies within 2 tiles gain +1 Range and arm Overwatch even after acting.',
+    commanderMovement: 2,
     startingDecreeIds: [],
     startingDecreeCount: 0,
     aiPersonalityLabel: 'Balanced Scout',
@@ -41,6 +47,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Willowmere',
       'Ashgrove',
       "Hart's Rest",
+      'Cedarvale',
+      'Oakenshield',
+      'Deepbough',
+      'Gladehold',
     ],
   },
   ironhelm: {
@@ -48,12 +58,18 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
     name: 'House Ironhelm',
     epithet: 'Mountain Masons',
     passiveName: 'Stonewrights',
-    passiveDescription: 'Palisades and Watchtowers cost 30% fewer Materials (3 Mat and 5 Mat).',
+    passiveDescription: 'Palisades and Watchtowers cost 30% fewer Materials.',
     uniqueImprovementId: 'deep_smeltery',
     signatureUnitId: 'oathsworn_halberdier',
+    commanderName: 'Stone-Thane',
+    commanderSkillId: 'hold_the_line',
+    commanderSkillName: 'Hold the Line',
+    commanderSkillDesc:
+      'Adjacent friendly units immediately Fortify (even if acted), gain +25% Defense until next turn, and heal +4 HP.',
+    commanderMovement: 2,
     startingDecreeIds: [],
     startingDecreeCount: 0,
-    aiPersonalityLabel: 'Defensive Turtle',
+    aiPersonalityLabel: 'Defensive Bastion',
     colors: {
       primary: '#1D4ED8',
       lightTint: '#DBEAFE',
@@ -71,6 +87,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Orehaven',
       'Bastion Ridge',
       'Slatewatch',
+      'Quarrygate',
+      'Granitekeep',
+      'Cairnwall',
+      'Coldforge',
     ],
   },
   aurelia: {
@@ -78,12 +98,17 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
     name: 'House Aurelia',
     epithet: 'River Covenant',
     passiveName: 'River Tolls',
-    passiveDescription:
-      '+1 Coin per river-adjacent tile improvement. Starts owning Royal Mining Charter and Guild of Master Smiths.',
+    passiveDescription: '+1 Coin per river-adjacent tile improvement.',
     uniqueImprovementId: 'river_tollhouse',
     signatureUnitId: 'gilded_lancer',
-    startingDecreeIds: ['decree_iron_prospecting', 'decree_master_smiths'],
-    startingDecreeCount: 2,
+    commanderName: 'Grand Syndic',
+    commanderSkillId: 'golden_banner',
+    commanderSkillName: 'Golden Banner',
+    commanderSkillDesc:
+      'Spend 6 Coin to immediately heal all adjacent friendly units +7 HP and clear Mutiny or Supply penalties.',
+    commanderMovement: 3,
+    startingDecreeIds: [],
+    startingDecreeCount: 0,
     aiPersonalityLabel: 'Economic Expansionist',
     colors: {
       primary: '#D97706',
@@ -102,6 +127,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Minted Reach',
       'Sunbrook',
       'Pearlwater',
+      'Weirport',
+      'Gildmere',
+      'Lockhaven',
+      'Bargeford',
     ],
   },
   corvus: {
@@ -113,6 +142,12 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Pillaging enemy improvements or clearing Outlaw Camps yields double Coin and Materials.',
     uniqueImprovementId: 'war_camp',
     signatureUnitId: 'dusk_outrider',
+    commanderName: 'Ash-Reaver',
+    commanderSkillId: 'raiders_horn',
+    commanderSkillName: "Raider's Horn",
+    commanderSkillDesc:
+      'Adjacent friendly units gain +1 Movement and ignore Zone of Control this turn; pillaging heals the pillager +6 HP.',
+    commanderMovement: 3,
     startingDecreeIds: [],
     startingDecreeCount: 0,
     aiPersonalityLabel: 'Aggressive Raider',
@@ -133,6 +168,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Bleakspire',
       'Bloodford',
       'Embergate',
+      'Charwood',
+      'Sootcrag',
+      'Redmoor',
+      'Pyrekeep',
     ],
   },
   solis: {
@@ -143,6 +182,12 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
     passiveDescription: 'All units and Keeps gain +1 sight radius.',
     uniqueImprovementId: 'signal_bastion',
     signatureUnitId: 'vanguard_spearman',
+    commanderName: 'Sun-Lord',
+    commanderSkillId: 'beacon_mark',
+    commanderSkillName: 'Beacon Mark',
+    commanderSkillDesc:
+      'Mark a visible enemy within 3 tiles; all attacks against it this turn ignore terrain and wall cover and gain +20% Attack.',
+    commanderMovement: 2,
     startingDecreeIds: [],
     startingDecreeCount: 0,
     aiPersonalityLabel: 'Opportunistic Tactician',
@@ -163,6 +208,10 @@ export const HOUSES: Readonly<Record<HouseId, HouseDef>> = {
       'Starwatch',
       'Zenith Hold',
       'Lightford',
+      'Helios Crag',
+      'Gleamgate',
+      'Noonwatch',
+      'Radiant Seat',
     ],
   },
 };

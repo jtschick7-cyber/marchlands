@@ -1,25 +1,30 @@
 /**
- * Marchlands (Spec v0.3) — Chronicle & Live HUD Scoring Engine
- *
- * Pure function reading house.stats counters directly (BALANCE_MODEL.md §6).
+ * Marchlands (Spec v2.0) — Chronicle & Live HUD Scoring Engine
  */
 
 import type { GameState, HouseId } from '../types/game.ts';
 import {
   SCORE_COIN_PER_TREASURY_PT,
   SCORE_PER_CAMP,
+  SCORE_PER_COMMANDER_WOUNDED,
   SCORE_PER_DECREE,
+  SCORE_PER_HIGH_SEAT,
+  SCORE_PER_IRON_TREASURY,
   SCORE_PER_KEEP,
   SCORE_PER_KEEP_CAPTURED,
   SCORE_PER_LIFETIME_FAVOR,
+  SCORE_PER_LV2_IMPROVEMENT,
+  SCORE_PER_OUTPOST,
   SCORE_PER_RUIN,
   SCORE_PER_TIER2_KEEP_EXTRA,
+  SCORE_PER_TIER3_KEEP_EXTRA,
   SCORE_PER_TILE,
   SCORE_PER_UNIT_DESTROYED,
   SCORE_PER_WATCHTOWER,
   SCORE_TILES_PER_EXPLORATION_PT,
 } from '../data/index.ts';
-import { getHouseKeeps } from './stateHelpers.ts';
+import { getIndexedHouseTiles } from './spatialIndex.ts';
+import { getHouseKeeps, getHouseOutposts } from './stateHelpers.ts';
 
 export interface ScoreBreakdown {
   readonly territory: number;
@@ -53,29 +58,39 @@ export function computeScore(
     };
   }
 
-  let ownedTiles = 0;
-  for (const tile of Object.values(state.tiles)) {
-    if (tile.ownerHouseId === houseId) ownedTiles += 1;
+  const ownedTilesList = getIndexedHouseTiles(state, houseId);
+  let lv2Count = 0;
+  for (const t of ownedTilesList) {
+    if (t.improvement !== null && t.improvementLevel === 2) lv2Count += 1;
   }
 
   const keepsList = getHouseKeeps(state, houseId);
-  const tier2Count = keepsList.filter((k) => k.tier === 2).length;
+  const tier2Count = keepsList.filter((k) => k.tier >= 2).length;
+  const tier3Count = keepsList.filter((k) => k.tier === 3).length;
+  const outpostsCount = getHouseOutposts(state, houseId).length;
 
-  const territory = ownedTiles * SCORE_PER_TILE;
-  const keeps = keepsList.length * SCORE_PER_KEEP + tier2Count * SCORE_PER_TIER2_KEEP_EXTRA;
+  const territory = ownedTilesList.length * SCORE_PER_TILE + lv2Count * SCORE_PER_LV2_IMPROVEMENT;
+  const keeps =
+    keepsList.length * SCORE_PER_KEEP +
+    tier2Count * SCORE_PER_TIER2_KEEP_EXTRA +
+    tier3Count * SCORE_PER_TIER3_KEEP_EXTRA +
+    outpostsCount * SCORE_PER_OUTPOST;
   const decrees =
     Math.max(0, house.decreeIds.length - house.startingDecreeCount) * SCORE_PER_DECREE;
   const military =
     house.stats.unitsDestroyed * SCORE_PER_UNIT_DESTROYED +
-    house.stats.keepsCaptured * SCORE_PER_KEEP_CAPTURED;
+    house.stats.keepsCaptured * SCORE_PER_KEEP_CAPTURED +
+    house.stats.commandersWounded * SCORE_PER_COMMANDER_WOUNDED;
   const exploration = Math.floor(house.stats.tilesRevealed / SCORE_TILES_PER_EXPLORATION_PT);
   const landmarks =
     house.stats.ruinsExplored * SCORE_PER_RUIN +
     house.stats.campsCleared * SCORE_PER_CAMP +
-    house.stats.watchtowersReached * SCORE_PER_WATCHTOWER;
+    house.stats.watchtowersReached * SCORE_PER_WATCHTOWER +
+    house.stats.highSeatCaptured * SCORE_PER_HIGH_SEAT;
   const crown = house.stats.lifetimeFavor * SCORE_PER_LIFETIME_FAVOR;
   const treasury = isGameEnd
-    ? Math.floor(house.resources.coin / SCORE_COIN_PER_TREASURY_PT)
+    ? Math.floor(house.resources.coin / SCORE_COIN_PER_TREASURY_PT) +
+      house.resources.iron * SCORE_PER_IRON_TREASURY
     : 0;
 
   return {
@@ -87,15 +102,10 @@ export function computeScore(
     landmarks,
     crown,
     treasury,
-    total:
-      territory + keeps + decrees + military + exploration + landmarks + crown + treasury,
+    total: territory + keeps + decrees + military + exploration + landmarks + crown + treasury,
   };
 }
 
-/**
- * Ranks Houses in descending order of score, breaking ties deterministically:
- * More Keeps -> higher lifetimeCoinEarned -> House turn order.
- */
 export function rankHousesByScore(
   state: GameState,
   isGameEnd = true,

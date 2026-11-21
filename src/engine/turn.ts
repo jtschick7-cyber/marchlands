@@ -1,5 +1,5 @@
 /**
- * Marchlands (Spec v0.3) — Turn Lifecycle, Undo Commit Points & Fog-Filtered Recap
+ * Marchlands (Spec v2.0) — Turn Lifecycle, Undo Commit Points & Fog-Filtered Recap
  */
 
 import type {
@@ -10,7 +10,13 @@ import type {
   HouseId,
   TileState,
 } from '../types/game.ts';
-import { SEASONS, VILLAGE_MAX_HP, VILLAGE_REGEN } from '../data/index.ts';
+import {
+  HIGH_SEAT_MAX_HP,
+  HIGH_SEAT_REGEN,
+  SEASONS,
+  VILLAGE_MAX_HP,
+  VILLAGE_REGEN,
+} from '../data/index.ts';
 import { checkWritCompletion, evaluateRegentsMandate, publishCrownWrits } from './crown.ts';
 import { openNextPendingModal } from './draftAndSpec.ts';
 import {
@@ -22,10 +28,7 @@ import { computeScore } from './scoring.ts';
 import { getHouseKeeps, getHouseUnits, getSeason } from './stateHelpers.ts';
 import { checkVictory } from './victory.ts';
 
-/**
- * Regenerates unhit Neutral Frontier Villages (+3 HP up to 12) at the start of a new round.
- */
-function regenerateNeutralVillages(state: GameState): GameState {
+function regenerateNeutralStructures(state: GameState): GameState {
   const nextTiles: Record<CoordKey, TileState> = { ...state.tiles };
   let changed = false;
 
@@ -35,9 +38,17 @@ function regenerateNeutralVillages(state: GameState): GameState {
         nextTiles[k] = { ...t, villageDamagedLastRound: false };
         changed = true;
       } else if (t.villageHp < VILLAGE_MAX_HP) {
+        nextTiles[k] = { ...t, villageHp: Math.min(VILLAGE_MAX_HP, t.villageHp + VILLAGE_REGEN) };
+        changed = true;
+      }
+    } else if (t.landmark === 'high_seat' && t.highSeatHp !== null && t.highSeatHp > 0) {
+      if (t.highSeatDamagedLastRound) {
+        nextTiles[k] = { ...t, highSeatDamagedLastRound: false };
+        changed = true;
+      } else if (t.highSeatHp < HIGH_SEAT_MAX_HP) {
         nextTiles[k] = {
           ...t,
-          villageHp: Math.min(VILLAGE_MAX_HP, t.villageHp + VILLAGE_REGEN),
+          highSeatHp: Math.min(HIGH_SEAT_MAX_HP, t.highSeatHp + HIGH_SEAT_REGEN),
         };
         changed = true;
       }
@@ -47,11 +58,6 @@ function regenerateNeutralVillages(state: GameState): GameState {
   return changed ? { ...state, tiles: nextTiles } : state;
 }
 
-/**
- * Ends the active House's turn, evaluates Writs/Mandate/Victory, advances round
- * (publishing Writs & Seasonal Events on new rounds), and runs Harvest & Upkeep
- * for the next living House.
- */
 export function endHouseTurn(
   state: GameState,
   difficultyByHouse?: Partial<Record<HouseId, Difficulty>>,
@@ -63,11 +69,8 @@ export function endHouseTurn(
   nextState = checkWritCompletion(nextState, endingHouseId);
   nextState = evaluateRegentsMandate(nextState, endingHouseId);
 
-  if (nextState.phase === 'game_over') {
-    return nextState;
-  }
+  if (nextState.phase === 'game_over') return nextState;
 
-  // Find next living House in turn order
   const order = nextState.houseOrder;
   const currentIdx = order.indexOf(endingHouseId);
   let nextHouseId: HouseId | null = null;
@@ -75,9 +78,7 @@ export function endHouseTurn(
 
   for (let offset = 1; offset <= order.length; offset++) {
     const idx = (currentIdx + offset) % order.length;
-    if (idx <= currentIdx) {
-      wrapped = true;
-    }
+    if (idx <= currentIdx) wrapped = true;
     const cand = order[idx]!;
     if (!nextState.houses[cand]?.isEliminated) {
       nextHouseId = cand;
@@ -86,16 +87,11 @@ export function endHouseTurn(
   }
 
   nextState = checkVictory(nextState, wrapped);
-  if (nextState.phase === 'game_over' || nextHouseId === null) {
-    return nextState;
-  }
+  if (nextState.phase === 'game_over' || nextHouseId === null) return nextState;
 
   if (wrapped) {
-    nextState = {
-      ...nextState,
-      turnNumber: nextState.turnNumber + 1,
-    };
-    nextState = regenerateNeutralVillages(nextState);
+    nextState = { ...nextState, turnNumber: nextState.turnNumber + 1 };
+    nextState = regenerateNeutralStructures(nextState);
     nextState = publishCrownWrits(nextState);
     nextState = triggerSeasonalEvent(nextState);
   }
@@ -112,22 +108,31 @@ export function endHouseTurn(
   return nextState;
 }
 
-// ============================================================================
-// Undo Commit Points (Ruling 6.4)
-// ============================================================================
-
 export type PlayerActionType =
   | 'move'
   | 'build'
+  | 'upgrade_improvement'
+  | 'build_road'
+  | 'clear_timber'
+  | 'build_outpost'
   | 'train'
   | 'rehome'
   | 'fortify'
+  | 'overwatch'
+  | 'deploy'
+  | 'reinforce'
+  | 'commander_skill'
+  | 'rally_commander'
+  | 'garrison_volley'
+  | 'upgrade_keep_t3'
   | 'demolish'
   | 'disband'
   | 'repair_keep'
   | 'crown_grant'
   | 'attack'
   | 'attack_keep'
+  | 'attack_high_seat'
+  | 'attack_outpost'
   | 'attack_village'
   | 'attack_camp'
   | 'raze'
@@ -135,6 +140,9 @@ export type PlayerActionType =
   | 'annex'
   | 'draft'
   | 'specialize'
+  | 'citadel'
+  | 'honor'
+  | 'commander_trait'
   | 'event_choice'
   | 'writ_tithe'
   | 'end_turn';
@@ -142,40 +150,47 @@ export type PlayerActionType =
 const ALWAYS_COMMIT_ACTIONS = new Set<PlayerActionType>([
   'attack',
   'attack_keep',
+  'attack_high_seat',
+  'attack_outpost',
   'attack_village',
   'attack_camp',
+  'garrison_volley',
+  'commander_skill',
   'raze',
   'pillage',
   'annex',
+  'clear_timber',
+  'build_outpost',
+  'upgrade_keep_t3',
   'draft',
   'specialize',
+  'citadel',
+  'honor',
+  'commander_trait',
   'event_choice',
   'writ_tithe',
   'end_turn',
 ]);
 
-/**
- * Ruling 6.4: Returns true if the transition from `prevState` to `nextState`
- * creates a Commit Point (clearing the undo stack).
- */
 export function isCommitPoint(
   prevState: GameState,
   nextState: GameState,
   actionType: PlayerActionType,
   viewerHouseId: HouseId,
 ): boolean {
-  // 2, 4, 5, 7: Actions that always commit
   if (ALWAYS_COMMIT_ACTIONS.has(actionType)) return true;
-
-  // 6: Any PRNG consumption commits
   if (nextState.rngCounter !== prevState.rngCounter) return true;
 
-  // 1a: Revealed tile set grew
+  // Overwatch shot fired during move commits
+  if (nextState.nextChronicleSeq > prevState.nextChronicleSeq) {
+    const recent = nextState.chronicle[nextState.chronicle.length - 1];
+    if (recent?.type === 'overwatch_shot') return true;
+  }
+
   const prevRevealed = prevState.houses[viewerHouseId]?.stats.tilesRevealed ?? 0;
   const nextRevealed = nextState.houses[viewerHouseId]?.stats.tilesRevealed ?? 0;
   if (nextRevealed > prevRevealed) return true;
 
-  // 1b: A new enemy unit, enemy improvement, or landmark became visible
   const prevFog = prevState.fog[viewerHouseId] ?? {};
   const nextFog = nextState.fog[viewerHouseId] ?? {};
   for (const [k, status] of Object.entries(nextFog)) {
@@ -185,13 +200,11 @@ export function isCommitPoint(
     if (tile.ownerHouseId !== null && tile.ownerHouseId !== viewerHouseId && tile.improvement !== null) {
       return true;
     }
-    const enemyUnit = Object.values(nextState.units).some(
-      (u) => u.tileKey === k && u.houseId !== viewerHouseId,
-    );
-    if (enemyUnit) return true;
+    if (Object.values(nextState.units).some((u) => u.tileKey === k && u.houseId !== viewerHouseId)) {
+      return true;
+    }
   }
 
-  // 3: A unit entered a Relic Ruin, Ancient Watchtower, or Outlaw Camp tile
   if (actionType === 'move') {
     for (const [uid, u] of Object.entries(nextState.units)) {
       const prevU = prevState.units[uid];
@@ -212,10 +225,6 @@ export function isCommitPoint(
   return false;
 }
 
-// ============================================================================
-// Fog-Filtered "Previously in the March..." Recap (GDD §9)
-// ============================================================================
-
 export interface RecapLine {
   readonly text: string;
   readonly tileKey: CoordKey | null;
@@ -228,9 +237,6 @@ export interface RecapSummary {
   readonly awaitingYourWord: readonly RecapLine[];
 }
 
-/**
- * Builds a 4-section fog-honest campaign recap for `viewerHouseId` since `sinceTurn`.
- */
 export function buildRecap(
   state: GameState,
   viewerHouseId: HouseId,
@@ -245,20 +251,16 @@ export function buildRecap(
   const threats: RecapLine[] = [];
   const awaitingYourWord: RecapLine[] = [];
 
-  if (!house) {
-    return { yourRealm, sinceYouLastRuled, threats, awaitingYourWord };
-  }
+  if (!house) return { yourRealm, sinceYouLastRuled, threats, awaitingYourWord };
 
-  // 1. Your Realm
   const keeps = getHouseKeeps(state, viewerHouseId);
   const units = getHouseUnits(state, viewerHouseId);
   const score = computeScore(state, viewerHouseId, false).total;
   yourRealm.push({
-    text: `Turn ${state.turnNumber} (${SEASONS[season].name}) — ${keeps.length} Keeps, ${units.length} Units, ${house.favor} Favor, Score ${score}.`,
+    text: `Turn ${state.turnNumber} (${SEASONS[season].name}) — ${keeps.length} Keeps, ${units.length} Units, ${house.resources.iron} Iron, ${house.favor} Favor, Score ${score}.`,
     tileKey: keeps[0]?.tileKey ?? null,
   });
 
-  // Next season warning 1 turn ahead
   if (state.turnNumber % 3 === 0) {
     const nextSeason = getSeason(state.turnNumber + 1);
     yourRealm.push({
@@ -267,12 +269,10 @@ export function buildRecap(
     });
   }
 
-  // 2. Since You Last Ruled (fog-filtered ChronicleEvents)
   const isEventVisible = (e: ChronicleEvent): boolean => {
     if (e.isPublic) return true;
     if (e.actorHouseId === viewerHouseId || e.targetHouseId === viewerHouseId) return true;
-    if (e.tileKey !== null && fog[e.tileKey] === 'visible') return true;
-    return false;
+    return e.tileKey !== null && fog[e.tileKey] === 'visible';
   };
 
   for (const e of state.chronicle) {
@@ -281,7 +281,6 @@ export function buildRecap(
     sinceYouLastRuled.push({ text: e.summary, tileKey: e.tileKey });
   }
 
-  // 3. Threats (visible enemy units near own territory or rival Mandate Claimant)
   if (state.crown.claimantHouseId && state.crown.claimantHouseId !== viewerHouseId) {
     threats.push({
       text: `House ${state.crown.claimantHouseId} holds the Regent's Mandate claim!`,
@@ -289,10 +288,9 @@ export function buildRecap(
     });
   }
   for (const u of Object.values(state.units)) {
-    if (u.houseId === viewerHouseId) continue;
-    if (fog[u.tileKey] !== 'visible') continue;
+    if (u.houseId === viewerHouseId || fog[u.tileKey] !== 'visible') continue;
     const nearKeep = keeps.find(
-      (k) => Math.max(Math.abs(k.x - u.x), Math.abs(k.y - u.y)) <= 3,
+      (k) => Math.max(Math.abs(k.x - u.x), Math.abs(k.y - u.y)) <= 4,
     );
     if (nearKeep) {
       threats.push({
@@ -302,7 +300,6 @@ export function buildRecap(
     }
   }
 
-  // 4. Awaiting Your Word
   if (state.pendingEventChoice && state.pendingEventChoice.houseId === viewerHouseId) {
     awaitingYourWord.push({ text: 'A Frontier Event requires your decision.', tileKey: null });
   }
@@ -315,9 +312,18 @@ export function buildRecap(
       });
     }
   }
+  for (const kid of house.pendingCitadelKeepIds) {
+    const k = state.keeps[kid];
+    if (k) {
+      awaitingYourWord.push({
+        text: `${k.name} rose to Tier 3 — choose a Citadel Charter.`,
+        tileKey: k.tileKey,
+      });
+    }
+  }
   if (house.pendingDraftCount > 0) {
     awaitingYourWord.push({
-      text: `${house.pendingDraftCount} Royal Decree Draft(s) awaiting selection.`,
+      text: `${house.pendingDraftCount} Royal Doctrine Pair(s) awaiting selection.`,
       tileKey: null,
     });
   }

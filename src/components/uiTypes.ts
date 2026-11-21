@@ -22,9 +22,13 @@ export interface UiInteractionState {
   readonly selectedTileKey: CoordKey | null;
   readonly buildModeImprovementId: ImprovementId | null;
   readonly attackPreviewTargetKey: CoordKey | null;
+  readonly outpostModeUnitId: string | null;
+  readonly volleyModeKeepId: string | null;
+  readonly beaconMarkMode: boolean;
   readonly skippedUnitIds: readonly string[];
   readonly keepInspectMode: 'unit' | 'keep';
   readonly showYieldOverlay: boolean;
+  readonly showMinimap: boolean;
   readonly showZoomButtons: boolean;
   readonly showRecapModal: boolean;
   readonly showCrownDrawer: boolean;
@@ -32,7 +36,17 @@ export interface UiInteractionState {
   readonly showPrimerModal: boolean;
   readonly showMenuDrawer: boolean;
   readonly discoveredRuin: DiscoveredRuinBanner | null;
-  readonly hudPopover: 'food' | 'materials' | 'coin' | 'favor' | 'keeps' | 'season' | 'score' | 'turn' | null;
+  readonly hudPopover:
+    | 'food'
+    | 'materials'
+    | 'iron'
+    | 'coin'
+    | 'favor'
+    | 'keeps'
+    | 'season'
+    | 'score'
+    | 'turn'
+    | null;
   readonly toastMessage: string | null;
   readonly toastTone: 'info' | 'warn' | 'error';
   readonly undoStack: readonly GameState[];
@@ -47,9 +61,13 @@ export const INITIAL_UI_STATE: UiInteractionState = {
   selectedTileKey: null,
   buildModeImprovementId: null,
   attackPreviewTargetKey: null,
+  outpostModeUnitId: null,
+  volleyModeKeepId: null,
+  beaconMarkMode: false,
   skippedUnitIds: [],
   keepInspectMode: 'unit',
   showYieldOverlay: true,
+  showMinimap: false,
   showZoomButtons: false,
   showRecapModal: false,
   showCrownDrawer: false,
